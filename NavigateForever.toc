@@ -2,7 +2,7 @@
 ## Title: Navigate Forever
 ## Notes: A bigger square minimap for WoW Forever, with a navigation bar, an arrow, places, pins, range rings, and gathering pings.
 ## Author: BigBrandDeluxe
-## Version: 1.1.0
+## Version: 1.1.1
 ## SavedVariables: NavigateForeverDB
 ## SavedVariablesPerCharacter: NavigateForeverCharDB
 ## IconTexture: Interface\AddOns\NavigateForever\Media\icon
@@ -11,6 +11,7 @@
 ## AllowLoadGameType: forever
 ## ExcludeLoadGameType: standard, classic
 ## X-License: All Rights Reserved
+## X-Curse-Project-ID: 1807849
 
 NavigateForever.lua
 NavigateForeverPlaces.lua

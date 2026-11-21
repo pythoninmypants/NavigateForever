@@ -2,6 +2,18 @@
 
 Patch notes for what players can see. Newest first.
 
+## 1.1.1
+
+### November 20, 2026
+
+#### Large map
+
+- Step Daddymike reported this. Press M, drop a pin, and Navigate Forever saved it. The arrow still pointed the right way, but the mark never appeared on that map. It does now. The same gold square with the blue center from the minimap sits on the spot you clicked. Clear still removes it.
+
+#### Quest diamond
+
+- Step Daddymike reported this. Checking **Quest diamond** printed "This version of the game has no quest diamond," and the yellow diamond never showed over a tracked quest. Track a quest and the diamond shows in the world again. Uncheck the box to turn it off.
+
 ## 1.1.0
 
 ### November 19, 2026
