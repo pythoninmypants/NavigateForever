@@ -6,6 +6,40 @@ Navigate Azeroth Your Way.
 
 The game draws one square minimap. Dragging the corner scales that whole square, so the terrain and the border grow together. The mouse wheel still zooms.
 
+## Screenshots
+
+The Undead theme on the Western Strand. Mail, Inn, Repair, Vendor, Flight, and Find sit above the map. Coordinates and the direction you face sit along the bottom.
+
+![Undead minimap on the Western Strand](screenshots/minimap-undead.jpg)
+
+Hallow's End uses pumpkin corners and a darker frame.
+
+![Hallow's End minimap](screenshots/minimap-hallows.jpg)
+
+The arrow points at a pin, a corpse, or a tracked quest. Drag it if it covers the middle of the screen.
+
+![Arrow pointing at Elixir of Agony, 76 yards away](screenshots/arrow.jpg)
+
+A creature you still need for a quest gets a gold mark and your progress on its nameplate.
+
+![Torn Fin Muckdweller marked 4/5 Torn Fin Eye](screenshots/quest-mark-muckdweller.jpg)
+
+![Torn Fin Oracle marked 4/5 Torn Fin Eye](screenshots/quest-mark-oracle.jpg)
+
+Chat lines for a finished objective, the death marker, and a campfire.
+
+![Navigate Forever chat lines](screenshots/chat.jpg)
+
+**Theme** on the More page lists every look. Rings, Messages, and More each wear the theme you pick.
+
+![Theme list with Hallow's End selected](screenshots/themes.jpg)
+
+![Rings page in the Fire theme](screenshots/settings-rings.jpg)
+
+![Messages page in the Alliance theme](screenshots/settings-messages.jpg)
+
+![More page in Classic UI](screenshots/settings-more.jpg)
+
 ## Features
 
 - Navigation bar with the zone, your coordinates, the direction you are facing, and a pin

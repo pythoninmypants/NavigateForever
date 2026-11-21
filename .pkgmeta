@@ -6,6 +6,7 @@ ignore:
   - dist
   - scripts
   - art
+  - screenshots
   - .gitignore
 
 manual-changelog:
