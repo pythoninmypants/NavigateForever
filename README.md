@@ -27,7 +27,7 @@ The game draws one square minimap. Dragging the corner scales that whole square,
 - Find a city, inn, flight master, boat, or zeppelin by name
 - On a flight, the bar counts down the time left. After you fly a route once, it uses that route's real time
 - A long route can walk you to a flight, boat, zeppelin, or hearth instead of pointing across the ocean
-- Thirty themes under **Theme** on the More page: Default, Classic UI, Horde, Alliance, Arcane, Frost, Fire, Kitty, one for each class (Warrior, Paladin, Hunter, Rogue, Priest, Shaman, Mage, Warlock, and Druid), one for each race (Human, Dwarf, Gnome, Night Elf, Orc, Troll, Tauren, Undead, and Skyborne), and four holidays (Hallow's End, Winter Veil, Lunar Festival, and Love is in the Air). Each one past Default has its own painted logo, corner pieces, and animated effects
+- Thirty themes under **Theme** on the More page. Each one past Default has its own painted logo, corner pieces, and animated effects
 - Settings saved between sessions
 
 ## Install
@@ -56,7 +56,7 @@ The minimap starts a bit bigger than normal, at full opacity, with the position 
 - Drag the gold corner to make the square bigger or smaller. The square, the bar above it, and the settings window follow your resolution, so they stay a similar size on a 1080p, 1440p, or 4K screen. The window also shrinks to stay on screen.
 - Hold the Right Alt key and drag the map to move it. Right Alt is the Alt key on the right side of the space bar.
 - `/nf`, or the gear button beside Pin and Clear, opens four pages: Map, Rings, Messages, and More. Reset sits at the bottom of every page.
-- **Theme** on the More page changes the colors, the logo, and the corner pieces. **Default** is navy and gold. **Classic UI** looks like part of the game itself: the game's own dark dialog background, gold metal corners, gold titles, and no animation. **Undead** has bone corners and green spores, **Horde** has iron corners and embers, **Alliance** has gold corners and motes of light, **Night Elf** has vine corners and wisps, **Arcane** has rune corners and sparkles, **Frost** has icicle corners and snow, and **Fire** has molten corners and embers. The class themes use the class colors: **Warrior** has riveted iron and sparks, **Paladin** has holy gold and falling stars, **Hunter** has a wolf and blowing leaves, **Rogue** has daggers and poison bubbles, **Priest** has winged gold and drifting feathers, **Shaman** has a totem and crackling lightning, **Mage** has a spellbook and rising stars, **Warlock** has a fel skull and wandering wisps, and **Druid** has a bear in autumn leaves and fireflies. **Kitty** is hot pink, with a cat-eared gamer girl buried in kittens, three kittens playing on every corner, and a stream of cat faces, hearts, and paw prints. The races each have their homeland: **Human** has a lion crest and golden Elwynn leaves, **Dwarf** has a hammer and anvil and Dun Morogh snow, **Gnome** has brass pipes and spinning gears, **Orc** has a tusked war mask and Durotar dust, **Troll** has a voodoo mask and teal wisps, **Tauren** has a painted bull skull and tumbling feathers, and **Skyborne** has a marble wing around a wind crystal and feathers on the wind. The holidays have their own looks too: **Hallow's End** has a jack-o'-lantern and bats, **Winter Veil** has presents and snow, **Lunar Festival** has a red lantern and gold fireworks, and **Love is in the Air** has a ribboned heart and rising hearts. A theme also sets the menu and border colors, and you can still change those after. Each character remembers its own theme and colors, so your Hunter and your Paladin can each keep their own look. A character you haven't picked a theme on starts with the one you used last. Uncheck **Animations** to keep everything still.
+- **Theme** on the More page changes the colors, the logo, and the corner pieces. It also sets the menu and border colors, and you can still change those after. Each character remembers its own theme and colors, so your Hunter and your Paladin can each keep their own look. A character you haven't picked a theme on starts with the one you used last. Uncheck **Animations** to keep everything still.
 - Uncheck **Lock position** if you want a plain left-drag to move the map.
 - **Quest diamond**, beside it, shows or hides the game's yellow diamond over your tracked quest.
 - **Quest marks**, under the lock, puts a gold quest icon and glow on the nameplate of a creature you still need for a quest, with your progress, such as 3/8 Kobold Vermin. While it's on, enemy nameplates turn on when you log in. Uncheck it to turn the marks off.
@@ -67,6 +67,55 @@ The minimap starts a bit bigger than normal, at full opacity, with the position 
 - A herb or ore node pings when your cursor is on its dot, green for a herb and gold for ore. **Ping the map** in `/nf` turns that off. `/nf gather ping` does the same. The ping is only on your map.
 
 Opacity, size, position, and range rings are remembered for every character.
+
+## Themes
+
+**Default** is navy and gold.
+
+**Classic UI** looks like part of the game itself: the game's own dark dialog background, gold metal corners, gold titles, and no animation.
+
+**Kitty** is hot pink, with a cat-eared gamer girl buried in kittens, three kittens playing on every corner, and a stream of cat faces, hearts, and paw prints.
+
+### Looks
+
+- **Undead**: bone corners and green spores
+- **Horde**: iron corners and embers
+- **Alliance**: gold corners and motes of light
+- **Night Elf**: vine corners and wisps
+- **Arcane**: rune corners and sparkles
+- **Frost**: icicle corners and snow
+- **Fire**: molten corners and embers
+
+### Classes
+
+The class themes use the class colors.
+
+- **Warrior**: riveted iron and sparks
+- **Paladin**: holy gold and falling stars
+- **Hunter**: a wolf and blowing leaves
+- **Rogue**: daggers and poison bubbles
+- **Priest**: winged gold and drifting feathers
+- **Shaman**: a totem and crackling lightning
+- **Mage**: a spellbook and rising stars
+- **Warlock**: a fel skull and wandering wisps
+- **Druid**: a bear in autumn leaves and fireflies
+
+### Races
+
+- **Human**: a lion crest and golden Elwynn leaves
+- **Dwarf**: a hammer and anvil and Dun Morogh snow
+- **Gnome**: brass pipes and spinning gears
+- **Orc**: a tusked war mask and Durotar dust
+- **Troll**: a voodoo mask and teal wisps
+- **Tauren**: a painted bull skull and tumbling feathers
+- **Skyborne**: a marble wing around a wind crystal and feathers on the wind
+
+### Holidays
+
+- **Hallow's End**: a jack-o'-lantern and bats
+- **Winter Veil**: presents and snow
+- **Lunar Festival**: a red lantern and gold fireworks
+- **Love is in the Air**: a ribboned heart and rising hearts
 
 ## Slash commands
 
