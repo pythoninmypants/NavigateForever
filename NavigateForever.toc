@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: Navigate Forever
+## Notes: A bigger square minimap for WoW Forever, with a navigation bar, an arrow, places, pins, range rings, and gathering pings.
+## Author: BigBrandDeluxe
+## Version: 1.1.0
+## SavedVariables: NavigateForeverDB
+## SavedVariablesPerCharacter: NavigateForeverCharDB
+## IconTexture: Interface\AddOns\NavigateForever\Media\icon
+## Category: Map
+## OptionalDeps: TomTom
+## AllowLoadGameType: forever
+## ExcludeLoadGameType: standard, classic
+## X-License: All Rights Reserved
+
+NavigateForever.lua
+NavigateForeverPlaces.lua
+NavigateForeverArrow.lua

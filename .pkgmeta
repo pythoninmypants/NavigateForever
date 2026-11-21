@@ -1,0 +1,22 @@
+package-as: NavigateForever
+
+enable-nolib-creation: no
+
+ignore:
+  - dist
+  - scripts
+  - art
+  - .gitignore
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+license-output: LICENSE
+
+optional-dependencies:
+  - tomtom
+
+# After the CurseForge project is approved, add the numeric id from the
+# About Project box to NavigateForever.toc:
+# ## X-Curse-Project-ID: 123456

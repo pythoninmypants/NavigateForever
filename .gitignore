@@ -1,0 +1,6 @@
+dist/
+.release/
+.ruff_cache/
+__pycache__/
+*.pyc
+.~lock.*
