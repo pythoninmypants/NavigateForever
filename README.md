@@ -1,7 +1,5 @@
 # Navigate Forever
 
-![Navigate Forever poster](screenshots/poster.jpg)
-
 A bigger square minimap for WoW Forever, by BigBrandDeluxe.
 
 Navigate Azeroth Your Way.
