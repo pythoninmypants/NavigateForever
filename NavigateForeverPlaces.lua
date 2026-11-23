@@ -132,6 +132,7 @@ local LINKS = {
     { "Orgrimmar", "Grom'gol", "zep", 180 },
     { "Undercity", "Grom'gol", "zep", 210 },
 }
+F.TRANSPORT_LINKS = LINKS
 
 local KIND_FIELD = {
     mail = "mail",
@@ -798,6 +799,60 @@ function F.ArriveWalk()
     return true
 end
 
+local function sameText(a, b)
+    return type(a) == "string" and type(b) == "string" and a ~= "" and string.lower(a) == string.lower(b)
+end
+
+-- A boat or zeppelin whose ends share a land never changes `land`.
+-- Undercity and Grom'gol are both Eastern Kingdoms. Feathermoon and its dock are both Kalimdor.
+-- The boarding pin stays on the dock you left, so distance to that pin cannot mean arrival.
+local function rideArrived(step, here)
+    if here.land and step.destLand and step.origin and here.land == step.destLand and here.land ~= step.origin then
+        return true
+    end
+    local zone = GetZoneText and GetZoneText() or ""
+    local sub = GetSubZoneText and GetSubZoneText() or ""
+    local boarded
+    if step.place and F.Locate(step.place) then
+        boarded = F.YardsBetween(here, step.place)
+    end
+    if not step.rideSeen then
+        step.rideSeen = true
+        step.originZone = zone
+        step.originSub = sub
+        step.originMap = here.map
+    elseif boarded and boarded <= 80 then
+        -- Zone text can be empty for a moment at the dock. Keep the boarding labels until the ride leaves.
+        if zone ~= "" then
+            step.originZone = zone
+        end
+        if sub ~= "" then
+            step.originSub = sub
+        end
+        if here.map then
+            step.originMap = here.map
+        end
+    end
+    local dest = step.dest
+    if dest and F.Locate(dest) then
+        if here.map and step.originMap and here.map == dest.map and here.map ~= step.originMap then
+            return true
+        end
+        local yards = F.YardsBetween(here, dest)
+        -- Within a dock's width of the destination, and closer to it than to where you boarded.
+        if yards and yards <= 80 and boarded and boarded > yards then
+            return true
+        end
+    end
+    if step.originZone and step.originZone ~= "" and sameText(zone, step.zone) and zone ~= step.originZone then
+        return true
+    end
+    if dest and step.originSub and step.originSub ~= "" and sameText(sub, dest.name) and sub ~= step.originSub then
+        return true
+    end
+    return false
+end
+
 function F.WatchTrip()
     if F.stepping then
         return
@@ -823,7 +878,9 @@ function F.WatchTrip()
         if here and not step.origin then
             step.origin = here.land
         end
-        if here and here.land and step.destLand and here.land == step.destLand and here.land ~= step.origin then
+        if here and (step.kind == "boat" or step.kind == "zep") then
+            advance = rideArrived(step, here)
+        elseif here and here.land and step.destLand and here.land == step.destLand and here.land ~= step.origin then
             advance = true
         end
         if step.kind == "hearth" and not advance then

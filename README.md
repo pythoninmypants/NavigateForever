@@ -51,15 +51,22 @@ Chat lines for a finished objective, the death marker, and a campfire.
 - Three range rings, at 20, 40, and 60 yards, each with its own distance and color
 - Find Herbs and Find Minerals take turns, so both show up while you gather
 - A ping on the minimap when your cursor is on a herb or ore dot
+- Herbs you have picked and ore you have mined stay on the minimap as faint dots, for every character on the account
+- A breadcrumb trail on the minimap, to walk back out of caves
+- A gathering HUD like FarmHud that floats herbs and ore around your character, with the ground left visible
+- A countdown to the next boat or zeppelin, learned from the rides you take
 - A chat line and a sound when you stand at a campfire
 - Short notes when you enter places such as murloc territory, danger areas, and PvP zones
 - A chat line and a sound when a rare is close enough to show a nameplate, or when a rare mark is on the minimap
 - A gold arrow that points at your pin, your corpse, or a tracked quest. Drag it to move it
 - The game's yellow quest diamond, shown in the world over your tracked quest. Turn it off on the Map page
 - A pulsing gold quest icon and glow on the nameplate of a creature you still need for a quest, with your progress next to it. Enemy nameplates have to be on. Objects such as crates can't be marked
+- A gold compass on your fishing bobber, so you can tell it from the ones around you. Face the bobber. The compass stays still
+- Hover an item in your bags, in loot, or on a chat link. A quest drop names the quest and your progress. Meat, fish, and other cooking goods name the dish
 - One click for the nearest mailbox, inn, repair vendor, general vendor, or flight master
 - Find a city, inn, flight master, boat, or zeppelin by name
-- On a flight, the bar counts down the time left. After you fly a route once, it uses that route's real time
+- On a flight, the bar counts down the time left. After you fly a route, it uses how long that route actually takes. One trip that ends early does not replace a good time
+- A timer on the bar, to the right of the settings gear. Set it, and it can play an alarm and send a chat message to Say, Yell, General, Trade, or up to three whispers
 - A long route can walk you to a flight, boat, zeppelin, or hearth instead of pointing across the ocean
 - Thirty themes under **Theme** on the More page. Each one past Default has its own painted logo, corner pieces, and animated effects
 - Settings saved between sessions
@@ -82,23 +89,30 @@ To install the zip by hand:
 The minimap starts a bit bigger than normal, at full opacity, with the position locked so clicks still reach the map.
 
 - The bar above the map shows the zone, your coordinates, and the direction you are facing.
-- Ctrl-click the map to drop a pin. The bar then shows how far away it is, and which way to go. The arrow points there. Pin and Clear do the same thing.
+- Ctrl-click the map to drop a pin. With OpenMap installed, Alt-click the world map instead, so OpenMap keeps Ctrl-click for its own pins. The bar then shows how far away it is, and which way to go. The arrow points there. Pin and Clear do the same thing.
 - Mail, Inn, Repair, Vendor, and Flight sit above the bar. One click points you at the nearest one your faction can use.
 - Find asks for a name. `/nf find goldshire` does the same. Cities, inns, flight masters, boats, and zeppelins are in that list.
 - If the place is far, the arrow points at the next step. That can be a walk to a flight master, a flight, a boat, a zeppelin, or your hearth when it is ready. Drag the arrow if it covers the middle of the screen.
 - When you die, a glowing skull marks that spot. On a long corpse run it sits on the edge of the minimap and points the way. The bar shows the distance. It clears when you reach the body. **Clear at spirit healer** on the More page also removes it if you resurrect there. `/nf death` removes it sooner.
 - Drag the gold corner to make the square bigger or smaller. The square, the bar above it, and the settings window follow your resolution, so they stay a similar size on a 1080p, 1440p, or 4K screen. The window also shrinks to stay on screen.
 - Hold the Right Alt key and drag the map to move it. Right Alt is the Alt key on the right side of the space bar.
-- `/nf`, or the gear button beside Pin and Clear, opens four pages: Map, Rings, Messages, and More. Reset sits at the bottom of every page.
+- `/nf`, or the gear button beside Pin and Clear, opens five pages: Map, Rings, Messages, More, and Suggest. Reset sits at the bottom of every page. Suggest has a link to the comments on Navigate Forever's CurseForge page, and a box to write your idea in first.
+- Timer, to the right of the gear, counts down and plays an alarm. Drag the timer window to move it. A message can go to Say, Yell, General, Trade, or up to three whispers. General and Trade only show when they are open where you are. Whispers go out on their own. For the others, click Send when the alarm goes off, since the game only lets an addon post there after a click. Right-click the button to stop it.
 - **Theme** on the More page changes the colors, the logo, and the corner pieces. It also sets the menu and border colors, and you can still change those after. Each character remembers its own theme and colors, so your Hunter and your Paladin can each keep their own look. A character you haven't picked a theme on starts with the one you used last. Uncheck **Animations** to keep everything still.
 - Uncheck **Lock position** if you want a plain left-drag to move the map.
 - **Quest diamond**, beside it, shows or hides the game's yellow diamond over your tracked quest.
 - **Quest marks**, under the lock, puts a gold quest icon and glow on the nameplate of a creature you still need for a quest, with your progress, such as 3/8 Kobold Vermin. While it's on, enemy nameplates turn on when you log in. Uncheck it to turn the marks off.
+- **Your bobber**, beside Quest marks, puts a gold compass on your fishing bobber. Face the bobber. The compass stays still, so the splash is the part that moves. While the line is out, the game is allowed to show that bobber, and that goes back a few seconds after you stop. Uncheck it to turn the compass off.
+- **Item uses** on the Messages page adds a line to an item tooltip. A quest drop names the quest and your count, such as 3/8. Meat, fish, and other cooking goods name the dish. A spice used in many dishes says how many. Uncheck it to turn the lines off.
 - Drag any of the bars above or below the map to move it. That works even while the position is locked.
 - Mouse wheel still zooms.
 - Three range rings sit around you on the minimap, at 20, 40, and 60 yards. In `/nf`, each ring can be turned off, set to a new distance, or given its own color.
+- Faint dots on the minimap trace where you walked, the newest brightest, so you can follow them back out of a cave. There is no trail inside dungeons and raids, because the game hides your position there. **Breadcrumb trail** under Travel on the Rings page turns it off.
+- Press your **Gathering HUD** key, or type `/nf hud`, to float herbs, ore, and your marks around your character. The ground stays visible, and the bars stay in the corner. It turns with you, so a herb ahead of you shows above your character. Press it again to put the minimap back. Set the key under Key Bindings, then AddOns, then Navigate Forever.
+- Ride a boat or zeppelin and stand still on deck as it leaves. After three rides from the same pier within a few hours, the bar counts down to the next ship while you wait on that pier. **Boat and zeppelin times** under Travel on the Rings page turns it off.
 - With both Mining and Herbalism, Find Herbs and Find Minerals take turns so both kinds of node show on the minimap. The game still allows only one at a time. The swap starts at every 4 seconds. Change it under **Gathering** on the More page. `/nf gather off` turns it off. With only one of those professions, tracking stays as you set it.
 - A herb or ore node pings when your cursor is on its dot, green for a herb and gold for ore. **Ping the map** in `/nf` turns that off. `/nf gather ping` does the same. The ping is only on your map.
+- Each herb you pick and each vein you mine is saved. It shows later on the minimap as a faint dot, green for a herb and gold for ore, even while tracking is on the other kind. Rest the cursor on a dot for its name. **Remember herbs and ore** under Gathering on the More page turns the dots off, and `/nf nodes clear` forgets the ones on this continent.
 
 Opacity, size, position, and range rings are remembered for every character.
 
@@ -164,7 +178,12 @@ The class themes use the class colors.
 | `/nf mail` | Point at the nearest mailbox. `/nf inn`, `/nf repair`, `/nf vendor`, and `/nf flight` do the same for those. |
 | `/nf find goldshire` | Point at a city, inn, flight master, boat, or zeppelin by name. |
 | `/nf death` | Remove the death marker. |
+| `/nf timer` | Open the timer. `/nf timer 5` starts five minutes, `/nf timer 1:30` starts one minute and thirty seconds, and `/nf timer stop` cancels it. |
 | `/nf marks` | List what quest marks see on the nameplates around you, to find out why a creature has no mark. |
+| `/nf hud` | Open or close the gathering HUD. You can also set a key for it under Key Bindings, then AddOns. |
+| `/nf trail` | Show how long the breadcrumb trail is. `/nf trail clear` wipes it. |
+| `/nf boats` | List the boats and zeppelins learned so far. `/nf boats clear` forgets them. |
+| `/nf nodes` | Count the herbs and ore saved on this continent. `/nf nodes clear` forgets them. |
 | `/nf gather` | Turn the herb and ore swap on or off. `/nf gather 4` sets how many seconds each one stays on. `/nf gather ping` turns the node ping on or off. |
 | `/nf reset` | Restore the original size, opacity, position, range rings, and gathering swap. |
 | `/nf buttons` | Print the minimap frames. Use this if a button sits in the wrong place. |

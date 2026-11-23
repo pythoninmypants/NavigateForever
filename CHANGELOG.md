@@ -2,9 +2,117 @@
 
 Patch notes for what players can see. Newest first.
 
+## 1.1.9
+
+### November 22, 2026
+
+#### Gathering HUD
+- The HUD no longer paints a bigger copy of the minimap over the middle of the screen. The ground stays visible while you walk. Herbs, ore, and your marks float around your character, and the bars stay in the corner.
+
+## 1.1.8
+
+### November 21, 2026
+
+#### Gathering HUD
+- One key spreads the minimap over the middle of the screen around your character, with the ground see-through, so herbs, ore, and your remembered spots float around you while you ride. It works like FarmHud, so you won't need FarmHud too.
+- The HUD turns with you, so a node ahead of you shows above your character. A faint ring marks its edge, and N, E, S, W letters circle it with north in red. Icons stay their normal size.
+- The minimap goes back how it was when you close it.
+
+#### Suggestions page
+- A new Suggest tab in the settings has a link to Navigate Forever's comments on CurseForge. Click Copy link, press Ctrl+C, and paste it into your browser.
+- There is also a box to write your idea in while you play. It is saved until you clear it, and Select all makes it easy to copy into the comment.
+
+#### OpenMap
+- With OpenMap installed, Alt-click the world map to drop Navigate Forever's pin. Ctrl-click is left to OpenMap for its own pins, which Navigate Forever used to block. Without OpenMap, Ctrl-click still works.
+- Set the key under Key Bindings, then AddOns, then Navigate Forever, or type `/nf hud`. Clicks go through the HUD to the world.
+
+## 1.1.7
+
+### November 21, 2026
+
+#### Breadcrumb trail
+
+- Faint dots on the minimap show where you walked, the newest brightest. Follow them back out of a cave or a winding path.
+- It keeps about the last mile, and starts over after a hearth, a portal, or a flight. The game hides your position inside dungeons and raids, so there is no trail in them.
+- **Breadcrumb trail** under Travel on the Rings page turns it off. `/nf trail clear` wipes it.
+
+#### Boat and zeppelin times
+
+- Ride a boat or zeppelin and stand still on deck as it leaves. The addon saves that pier and how long the trip took, and the bar counts down the ride.
+- After three rides from the same pier within a few hours, it knows how often ships leave. Stand on that pier and the bar counts down to the next one, such as "Boat to Auberdine   leaves in 1:20".
+- A server restart moves the times. The next ride from that pier fixes them.
+- **Boat and zeppelin times** under Travel on the Rings page turns it off. `/nf boats` lists what it has learned.
+
+## 1.1.6
+
+### November 21, 2026
+
+#### Remembered herbs and ore
+
+- Each herb you pick and each vein you mine is saved where you stood. Later it shows on the minimap as a faint dot, green for a herb and gold for ore. That works even while tracking is on the other kind, or off.
+- Rest the cursor on a dot for the name, such as Peacebloom or Copper Vein, and how many times you gathered there.
+- Every character on your account shares them. A character with only Herbalism sees the herbs, and one with only Mining sees the ore.
+- **Remember herbs and ore**, under Gathering on the More page, turns the dots off. `/nf nodes` counts what's saved on this continent, and `/nf nodes clear` forgets them.
+
+## 1.1.5
+
+### November 21, 2026
+
+#### Flight timer
+
+- The clock on a route you have flown before was still guessing. It reads the route while the flight map is open, then counts down from how long that route actually took.
+- One trip that ends early does not replace a good time. The clock uses the middle of your last few trips on that route.
+- The first time on a route, the clock follows the path the bird flies, including the stops in between. If that first guess is short, it can catch up instead of sitting at 0:00.
+
+## 1.1.4
+
+### November 21, 2026
+
+#### Your bobber
+
+- A gold compass sits on your fishing bobber, so you can tell it from the ones around you. The splashes all sound the same, and the game never says which bobber moved, so the compass is how you pick out yours.
+- Face the bobber. The game only draws it while you look at it. The compass stays still, and the splash is still the part that moves.
+- While the line is out, the game is allowed to show that bobber. A few seconds after you stop, that goes back to how you had it.
+- **Your bobber** on the Map page turns the compass off.
+
+## 1.1.3
+
+### November 21, 2026
+
+#### Item uses
+
+- Rest the mouse on an item in your bags, in loot, or on a chat link. If a quest in your log still needs it, the tooltip names that quest and your progress, such as 3/8. Once you have enough and the quest is still in your log, it says done.
+- Meat, fish, eggs, and other cooking goods name the dish. Stringy Wolf Meat says Charred Wolf Meat and Spiced Wolf Meat. A spice used in a lot of dishes says how many, instead of listing every one.
+- **Item uses** on the Messages page turns those lines off.
+
+#### Timer
+
+- The timer message can go to Say, Yell, General chat, Trade chat, or Whispers. General and Trade only show when that channel is open where you are.
+- Choose Whispers and type up to three full character names, such as Nek Thane. The alarm whispers those people on its own.
+- If the name belongs to a Battle.net friend's character, the timer sends a Battle.net whisper, so it reaches them on any realm. For anyone else on another realm, add the realm, like Nek Thane-RealmName.
+- The game only lets an addon post in Say, Yell, General, or Trade after a click. When the alarm goes off, a window shows your message with a Send button. Click it to post.
+- The timer only says a message was sent once it shows in chat. If a name is wrong or that person is offline, it tells you.
+- The timer window, its buttons, and the Send window use the colors and border of your theme.
+
+## 1.1.2
+
+### November 21, 2026
+
+#### Timer
+
+- A Timer button sits on the bar, to the right of the settings gear. The mail icon stays on the right side of that bar.
+- Click it to set hours, minutes, and seconds. The window uses the same theme as the rest of Navigate Forever. Drag it to move it. The button counts down, then plays an alarm. Right-click the button to stop it.
+- You can type a message for the alarm to send. The list only shows channels that are open where you are, such as Say, Yell, Party, Raid, Guild, and the zone channels you have joined. General and Trade change as you move. The message is sent the same way as if you typed it in chat. If that channel is gone when the alarm goes off, the message stays on your screen.
+- Repeat starts the same timer again after each alarm.
+- `/nf timer` opens it. `/nf timer 5` starts five minutes. `/nf timer 1:30` starts one minute and thirty seconds. `/nf timer stop` cancels it.
+
 ## 1.1.1
 
 ### November 20, 2026
+
+#### Boats and zeppelins
+
+- The zeppelin between Undercity and Grom'gol, and the boat between Feathermoon and Feathermoon Dock, never finished. After you landed, the arrow stayed on the boarding step and the walk after the dock never started. Both stops are on the same continent, and the route was waiting for the continent to change. It moves on now, once you reach the other stop. The ride back does the same.
 
 #### Large map
 

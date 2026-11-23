@@ -634,6 +634,7 @@ local DEFAULTS = {
     warnBoss = true,
     warnWeather = true,
     warnQuest = true,
+    itemUses = true,
     warnCampfire = true,
     warnRepair = true,
     warnRare = true,
@@ -642,6 +643,7 @@ local DEFAULTS = {
     deathSpirit = true,
     questDiamond = true,
     questMarks = true,
+    bobberMark = true,
     fadeMove = true,
     alphaMove = 0.5,
     alphaCombat = 0.9,
@@ -654,8 +656,22 @@ local DEFAULTS = {
     ring3Yards = 60,
     gatherSwap = true,
     gatherSeconds = 4,
+    rememberNodes = true,
+    trail = true,
+    boatTimes = true,
     theme = "default",
     animate = true,
+    timerHours = 0,
+    timerMinutes = 5,
+    timerSeconds = 0,
+    timerMessage = "",
+    timerChannel = "say",
+    timerWhisper1 = "",
+    timerWhisper2 = "",
+    timerWhisper3 = "",
+    timerRepeat = false,
+    timerEnd = nil,
+    timerClock = "server",
 }
 
 local QUIPS = {
@@ -923,6 +939,43 @@ function F.InitDB()
             db.flightTimes[route] = nil
         end
     end
+    if type(db.flightRuns) ~= "table" then
+        db.flightRuns = {}
+    end
+    for route, runs in pairs(db.flightRuns) do
+        if type(route) ~= "string" or type(runs) ~= "table" then
+            db.flightRuns[route] = nil
+        else
+            local clean = {}
+            for index = 1, #runs do
+                local seconds = tonumber(runs[index])
+                if seconds and seconds >= 5 and seconds <= 3600 then
+                    clean[#clean + 1] = math.floor(seconds + 0.5)
+                end
+            end
+            while #clean > 5 do
+                table.remove(clean, 1)
+            end
+            if #clean < 1 then
+                db.flightRuns[route] = nil
+            else
+                db.flightRuns[route] = clean
+            end
+        end
+    end
+    for route, seconds in pairs(db.flightTimes) do
+        if type(db.flightRuns[route]) ~= "table" then
+            db.flightRuns[route] = { math.floor(seconds + 0.5) }
+        end
+    end
+    for route, runs in pairs(db.flightRuns) do
+        local typical = F.FlightTypical(runs)
+        if typical then
+            db.flightTimes[route] = typical
+        else
+            db.flightTimes[route] = nil
+        end
+    end
     if type(db.deaths) ~= "table" then
         db.deaths = {}
     end
@@ -941,6 +994,39 @@ function F.InitDB()
         end
     end
     F.TidyPins()
+    db.timerHours = F.Clamp(F.Round(tonumber(db.timerHours) or 0), 0, 48)
+    db.timerMinutes = F.Clamp(F.Round(tonumber(db.timerMinutes) or 0), 0, 59)
+    db.timerSeconds = F.Clamp(F.Round(tonumber(db.timerSeconds) or 0), 0, 59)
+    if type(db.timerMessage) ~= "string" then
+        db.timerMessage = ""
+    elseif string.len(db.timerMessage) > 255 then
+        db.timerMessage = string.sub(db.timerMessage, 1, 255)
+    end
+    if type(db.timerChannel) ~= "string" or db.timerChannel == "" then
+        db.timerChannel = "say"
+    end
+    local savedChannel = string.lower(db.timerChannel)
+    local savedShort = string.match(savedChannel, "^chan:(.+)$")
+    if savedChannel == "general" or savedShort == "general" then
+        db.timerChannel = "general"
+    elseif savedChannel == "trade" or savedShort == "trade" then
+        db.timerChannel = "trade"
+    elseif savedChannel ~= "say" and savedChannel ~= "yell" and savedChannel ~= "whisper" then
+        db.timerChannel = "say"
+    end
+    for index = 1, 3 do
+        local key = "timerWhisper" .. index
+        db[key] = F.TimerCleanName(db[key])
+    end
+    db.timerRepeat = not not db.timerRepeat
+    db.timerEnd = tonumber(db.timerEnd)
+    if db.timerClock ~= "local" then
+        db.timerClock = "server"
+    end
+    local timerNow = F.TimerNow and F.TimerNow(db.timerClock)
+    if db.timerEnd and timerNow and (db.timerEnd < timerNow - 6 * 3600 or db.timerEnd > timerNow + 49 * 3600) then
+        db.timerEnd = nil
+    end
     liveAlpha = db.alpha
 end
 
@@ -1130,11 +1216,13 @@ function F.PulseBorders(mix)
     if border and border.SetBackdropBorderColor then
         border:SetBackdropBorderColor(r, g, b, 1)
     end
-    if panel and panel.nfTop then
-        panel.nfTop:SetColorTexture(r, g, b, 1)
-        panel.nfBottom:SetColorTexture(r, g, b, 1)
-        panel.nfLeft:SetColorTexture(r, g, b, 1)
-        panel.nfRight:SetColorTexture(r, g, b, 1)
+    for _, window in ipairs({ panel, F.timerPanel, F.timerPrompt }) do
+        if window and window.nfTop then
+            window.nfTop:SetColorTexture(r, g, b, 1)
+            window.nfBottom:SetColorTexture(r, g, b, 1)
+            window.nfLeft:SetColorTexture(r, g, b, 1)
+            window.nfRight:SetColorTexture(r, g, b, 1)
+        end
     end
 end
 
@@ -1926,6 +2014,9 @@ F.Apply = function()
         return
     end
     if F.IsHybrid() then
+        return
+    end
+    if F.hudOn then
         return
     end
 
@@ -2768,9 +2859,24 @@ function F.PinChat(mapID, x, y)
     return quip .. " " .. spot .. "."
 end
 
+-- OpenMap puts its own pins on Ctrl-click, so with it loaded the world map pin key is Alt.
+function F.WorldPinKey()
+    if type(OpenMapAPI) == "table" then
+        return "Alt"
+    end
+    return "Ctrl"
+end
+
+function F.WorldPinKeyDown()
+    if F.WorldPinKey() == "Alt" then
+        return IsAltKeyDown()
+    end
+    return IsControlKeyDown()
+end
+
 function F.DropPinOnWorldMap()
     if not WorldMapFrame or not WorldMapFrame.GetNormalizedCursorPosition or not WorldMapFrame:IsShown() then
-        F.Say("Open the world map, then Ctrl-click the spot.")
+        F.Say("Open the world map, then " .. F.WorldPinKey() .. "-click the spot.")
         return
     end
     local mapID = WorldMapFrame.mapID
@@ -2812,7 +2918,7 @@ function UpdateWorldClick()
     if not handler then
         return
     end
-    local ctrl = IsControlKeyDown()
+    local ctrl = F.WorldPinKeyDown()
     if not pinArmed and not ctrl then
         if handler.SetPassThroughButtons and not InCombatLockdown() then
             handler:SetPassThroughButtons("LeftButton", "RightButton", "MiddleButton", "Button4", "Button5")
@@ -2848,7 +2954,7 @@ function F.HookWorldMap()
     handler:RegisterEvent("MODIFIER_STATE_CHANGED")
     handler:SetScript("OnEvent", UpdateWorldClick)
     handler:SetScript("OnMouseUp", function(_, button)
-        if button == "RightButton" or (button == "LeftButton" and IsControlKeyDown()) then
+        if button == "RightButton" or (button == "LeftButton" and F.WorldPinKeyDown()) then
             F.DropPinOnWorldMap()
         end
     end)
@@ -3613,10 +3719,8 @@ function F.DockBarButtons(barWidth)
     add(left, nav.pinBtn, "chip")
     add(left, nav.clearBtn, "chip")
     add(left, nav.settingsBtn, "chip")
-    local mail = F.FindFrame("MiniMapMailFrame")
-    if not mail and MinimapCluster and MinimapCluster.IndicatorFrame then
-        mail = MinimapCluster.IndicatorFrame.MailFrame
-    end
+    add(left, nav.timerBtn, "chip")
+    local mail = F.TimerMailFrame and F.TimerMailFrame() or F.FindFrame("MiniMapMailFrame")
     if mail and mail.IsShown and mail:IsShown() then
         add(right, mail, "icon")
         if right[#right] and right[#right].button == mail then
@@ -3637,19 +3741,26 @@ function F.DockBarButtons(barWidth)
         end
         return total
     end
+    -- The 12 is the gap between the left chips and the mail icon. Shrink to fit
+    -- instead of letting the timer draw on top of the mail notice.
     local fixed = edge * 2 + 12 + gap * math.max(0, #left - 1) + gap * math.max(0, #right - 1)
     local content = span(left) + span(right)
     local fit = 1
     local room = (barWidth or 220) - fixed
     if content > 0 and room > 0 and content > room then
-        fit = math.max(0.5, room / content)
+        fit = room / content
+    elseif content > 0 and room <= 0 then
+        fit = 0.2
     end
 
     -- A scaled frame multiplies its own SetPoint offsets, so divide them back out.
     local rowY = -26
-    local function seat(item, point, relative, x)
+    local function seat(item, point, relative, x, fitScale)
         local button = item.button
-        local scale = item.scale * fit
+        local scale = item.scale * fitScale
+        if scale < 0.05 then
+            scale = 0.05
+        end
         pcall(button.SetScale, button, scale)
         if button.SetFixedFrameStrata then
             pcall(button.SetFixedFrameStrata, button, false)
@@ -3667,13 +3778,26 @@ function F.DockBarButtons(barWidth)
         return item.width * scale
     end
 
-    local x = edge
-    for index = 1, #left do
-        x = x + seat(left[index], "LEFT", "TOPLEFT", x) + gap
+    local function layout(fitScale)
+        local x = edge
+        for index = 1, #left do
+            x = x + seat(left[index], "LEFT", "TOPLEFT", x, fitScale) + gap
+        end
+        x = -edge
+        for index = #right, 1, -1 do
+            x = x - seat(right[index], "RIGHT", "TOPRIGHT", x, fitScale) - gap
+        end
     end
-    x = -edge
-    for index = #right, 1, -1 do
-        x = x - seat(right[index], "RIGHT", "TOPRIGHT", x) - gap
+
+    layout(fit)
+    if mail and nav.timerBtn and mail.IsShown and mail:IsShown() and F.TimerFramesOverlap then
+        local ok, overlap = pcall(F.TimerFramesOverlap, nav.timerBtn, mail)
+        if ok and overlap then
+            layout(fit * 0.85)
+        end
+    end
+    if mail and mail.SetFrameLevel then
+        pcall(mail.SetFrameLevel, mail, (nav:GetFrameLevel() or 10) + 8)
     end
 end
 
@@ -3966,7 +4090,7 @@ function F.HeldSolid()
 end
 
 function F.RefreshIndoorMap(force)
-    if not map or (not F.SolidTerrain() and not F.solidOn) then
+    if not map or F.hudOn or (not F.SolidTerrain() and not F.solidOn) then
         return
     end
     if cluster then
@@ -4067,7 +4191,7 @@ function F.LayoutNav()
     if container then
         container:SetAlpha(1)
     end
-    if map then
+    if map and not F.hudOn then
         local terrain = alpha
         local solid = F.HeldSolid()
         if solid then
@@ -4090,7 +4214,9 @@ function F.LayoutNav()
     if screen < 0.05 then
         screen = 1
     end
-    local edgeTarget = map or container
+    -- While the HUD is open the map sits in the middle of the screen.
+    -- Keep the bars on the corner cluster so they do not stretch across it.
+    local edgeTarget = (F.hudOn and cluster) or map or container
     local barWidth = 220 * screen
     if nav and edgeTarget then
         if nav:GetParent() ~= UIParent then
@@ -4351,7 +4477,6 @@ function F.Chip(parent, label, width, fontSize, height)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(width, height or 22)
     F.PaintPanel(button, 1)
-    button.nfBg:SetColorTexture(0.09, 0.14, 0.22, 1)
     local text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     text:SetPoint("CENTER", 0, 0)
     text:SetText(label)
@@ -4505,6 +4630,9 @@ F.ApplyColors = function()
     end
     if F.RefreshOptionTabs then
         F.RefreshOptionTabs()
+    end
+    if F.TimerApplyColors then
+        F.TimerApplyColors()
     end
 end
 
@@ -5104,11 +5232,87 @@ function F.TaxiOrigin()
     return nil
 end
 
--- Flight paths bend around terrain and through other flight points, so the
--- straight line to the destination undercounts. This is the length of the
--- route's legs over the straight-line length, both in world yards.
-function F.TaxiPathRatio(index, origin, mapID)
-    if not mapID or not origin or not GetNumRoutes or not TaxiGetSrcX or not TaxiGetDestX then
+-- The flight map closes inside TakeTaxiNode, before a hook can read it.
+-- Copy the nodes while the map is open, or the saved time never finds its route
+-- and every flight falls back to a straight-line guess.
+function F.TaxiLabel(name)
+    name = F.Plain(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+    name = string.gsub(name, "|c%x%x%x%x%x%x%x%x", "")
+    name = string.gsub(name, "|r", "")
+    name = string.match(name, "^%s*(.-)%s*$")
+    if not name or name == "" then
+        return nil
+    end
+    return name
+end
+
+function F.TaxiZone()
+    local zone, subzone
+    if GetZoneText then
+        local ok, value = pcall(GetZoneText)
+        zone = ok and F.TaxiLabel(value) or nil
+    end
+    if GetSubZoneText then
+        local ok, value = pcall(GetSubZoneText)
+        subzone = ok and F.TaxiLabel(value) or nil
+    end
+    return zone, subzone
+end
+
+function F.FlightTypical(runs)
+    if type(runs) ~= "table" then
+        return nil
+    end
+    local copy = {}
+    for index = 1, #runs do
+        local seconds = tonumber(runs[index])
+        if seconds and seconds >= 5 and seconds <= 3600 then
+            copy[#copy + 1] = seconds
+        end
+    end
+    local count = #copy
+    if count < 1 then
+        return nil
+    end
+    -- Two very different trips: keep the one that just finished. One bad
+    -- reading then stops standing in for the route.
+    if count == 2 then
+        local older, newer = copy[1], copy[2]
+        local low, high = older, newer
+        if low > high then
+            low, high = high, low
+        end
+        if high > low * 1.3 then
+            return math.floor(newer + 0.5)
+        end
+    end
+    table.sort(copy)
+    if count % 2 == 1 then
+        return math.floor(copy[math.floor((count + 1) / 2)] + 0.5)
+    end
+    local low = math.floor(count / 2)
+    return math.floor((copy[low] + copy[low + 1]) / 2 + 0.5)
+end
+
+function F.PushFlightKey(keys, key)
+    if type(key) ~= "string" or key == "" then
+        return
+    end
+    for index = 1, #keys do
+        if keys[index] == key then
+            return
+        end
+    end
+    keys[#keys + 1] = key
+end
+
+-- Length of the route's legs, in world yards, plus that length over the
+-- straight line. The legs are kept so the clock can follow the path.
+function F.TaxiRouteInfo(index, origin, mapID)
+    if not mapID or not origin or not index or not GetNumRoutes or not TaxiGetSrcX or not TaxiGetDestX then
         return nil
     end
     local function world(x, y)
@@ -5128,24 +5332,32 @@ function F.TaxiPathRatio(index, origin, mapID)
         return callOK and F.Plain(value) or nil
     end
     local path = 0
+    local legs = {}
     for hop = 1, hops do
         local sx, sy = world(get(TaxiGetSrcX, hop), get(TaxiGetSrcY, hop))
         local ex, ey = world(get(TaxiGetDestX, hop), get(TaxiGetDestY, hop))
         if not sx or not ex then
             return nil
         end
-        path = path + math.sqrt((ex - sx) ^ 2 + (ey - sy) ^ 2)
+        local len = math.sqrt((ex - sx) ^ 2 + (ey - sy) ^ 2)
+        path = path + len
+        legs[#legs + 1] = { x1 = sx, y1 = sy, x2 = ex, y2 = ey, len = len }
     end
+    local ratio
     local ax, ay = world(F.NodeXY(origin))
     local bx, by = world(F.NodeXY(index))
-    if not ax or not bx then
-        return nil
+    if ax and bx then
+        local straight = math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2)
+        if straight >= 1 and path >= straight then
+            ratio = math.min(path / straight, 4)
+        end
     end
-    local straight = math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2)
-    if straight < 1 or path < straight then
-        return nil
-    end
-    return math.min(path / straight, 4)
+    return path, ratio, legs
+end
+
+function F.TaxiPathRatio(index, origin, mapID)
+    local _, ratio = F.TaxiRouteInfo(index, origin, mapID)
+    return ratio
 end
 
 -- Remaining path is assumed to straighten out as the flight nears the end.
@@ -5160,6 +5372,345 @@ function F.PathFactor(dest, dist, key)
         dest.startDist[key] = dist
     end
     return 1 + (dest.pathRatio - 1) * (dist / start)
+end
+
+function F.CacheTaxiMap()
+    if not NumTaxiNodes then
+        return
+    end
+    local ok, count = pcall(NumTaxiNodes)
+    count = ok and tonumber(F.Plain(count))
+    if not count or count < 1 then
+        return
+    end
+    local mapID = F.TaxiMapID()
+    local nodes = {}
+    local origin
+    for index = 1, count do
+        local name = F.TaxiLabel(F.TaxiFullName(index))
+        local kind
+        if TaxiNodeGetType then
+            local typeOK, value = pcall(TaxiNodeGetType, index)
+            kind = typeOK and F.TaxiLabel(value) or nil
+        end
+        local x, y = F.NodeXY(index)
+        x, y = F.TaxiNorm(x, y)
+        nodes[index] = {
+            full = name,
+            short = F.TaxiShort(name),
+            kind = kind and string.lower(kind) or nil,
+            x = x,
+            y = y,
+        }
+        if nodes[index].kind == "current" then
+            origin = index
+        end
+    end
+    if not origin and mapID then
+        local px, py = F.PosOnMap(mapID)
+        local best, bestDist
+        if px then
+            for index = 1, count do
+                local node = nodes[index]
+                if node.x and node.y then
+                    local dist = (node.x - px) ^ 2 + (node.y - py) ^ 2
+                    if not bestDist or dist < bestDist then
+                        bestDist = dist
+                        best = index
+                    end
+                end
+            end
+            if best and bestDist and bestDist <= 0.012 * 0.012 then
+                origin = best
+            end
+        end
+    end
+    if origin and mapID then
+        for index = 1, count do
+            if index ~= origin then
+                local path, ratio, legs = F.TaxiRouteInfo(index, origin, mapID)
+                local node = nodes[index]
+                node.pathYards = path
+                node.pathRatio = ratio
+                node.hops = legs
+            end
+        end
+    end
+    if mapID and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes then
+        local listOK, list = pcall(C_TaxiMap.GetAllTaxiNodes, mapID)
+        if listOK and type(list) == "table" then
+            for index = 1, #list do
+                local item = list[index]
+                if type(item) == "table" then
+                    local slot = tonumber(F.Plain(item.slotIndex))
+                    local nodeID = tonumber(F.Plain(item.nodeID))
+                    local record = slot and nodes[slot]
+                    if record and nodeID and nodeID ~= slot and not nodes[nodeID] then
+                        nodes[nodeID] = record
+                    end
+                end
+            end
+        end
+    end
+    local zone, subzone = F.TaxiZone()
+    F.taxiCache = {
+        mapID = mapID,
+        nodes = nodes,
+        origin = origin,
+        zone = zone,
+        subzone = subzone,
+        at = F.Now(),
+    }
+end
+
+function F.DescribeFlight(dest, index, mapID)
+    local cache = F.taxiCache
+    local node = cache and cache.nodes and cache.nodes[index]
+    local origin = (cache and cache.origin) or F.TaxiOrigin()
+    local fromNode = cache and cache.nodes and origin and cache.nodes[origin]
+    local fromName = (fromNode and fromNode.full) or F.TaxiLabel(F.TaxiFullName(origin))
+    local toName = (node and node.full) or F.TaxiLabel(F.TaxiFullName(index)) or F.TaxiLabel(dest.name)
+    local keys = {}
+    if fromName and toName then
+        F.PushFlightKey(keys, fromName .. " > " .. toName)
+    end
+    local mapKey = tonumber(mapID) or (cache and tonumber(cache.mapID))
+    local fromX = fromNode and fromNode.x
+    local fromY = fromNode and fromNode.y
+    local toX = node and node.x
+    local toY = node and node.y
+    if not fromX and origin then
+        fromX, fromY = F.TaxiNorm(F.NodeXY(origin))
+    end
+    if not toX then
+        toX, toY = F.TaxiNorm(F.NodeXY(index))
+    end
+    if mapKey and fromX and toX then
+        F.PushFlightKey(keys, string.format("%d:%.3f:%.3f>%d:%.3f:%.3f", mapKey, fromX, fromY, mapKey, toX, toY))
+    end
+    if not fromName and toName then
+        local zone = cache and cache.zone
+        local subzone = cache and cache.subzone
+        if not zone then
+            zone, subzone = F.TaxiZone()
+        end
+        local place = zone
+        if subzone and subzone ~= "" and subzone ~= zone then
+            place = zone and (zone .. "/" .. subzone) or subzone
+        end
+        if place and place ~= "" then
+            F.PushFlightKey(keys, place .. " > " .. toName)
+        end
+    end
+    if #keys > 0 then
+        dest.route = keys[1]
+        dest.routes = keys
+    end
+    local path = node and node.pathYards
+    local ratio = node and node.pathRatio
+    local hops = node and node.hops
+    if not path and origin and mapKey then
+        path, ratio, hops = F.TaxiRouteInfo(index, origin, mapKey)
+    end
+    if type(path) == "number" and path > 1 then
+        dest.pathYards = path
+    end
+    if type(ratio) == "number" then
+        dest.pathRatio = ratio
+    end
+    if type(hops) == "table" and #hops > 0 then
+        dest.hops = hops
+    end
+end
+
+function F.KnownFlight(dest)
+    if not dest or not db or type(db.flightTimes) ~= "table" then
+        return nil
+    end
+    local keys = dest.routes
+    if type(keys) ~= "table" then
+        keys = dest.route and { dest.route } or nil
+    end
+    if not keys then
+        return nil
+    end
+    for index = 1, #keys do
+        local known = db.flightTimes[keys[index]]
+        if type(known) == "number" and known >= 5 and known <= 3600 then
+            return known
+        end
+    end
+    return nil
+end
+
+function F.SaveFlightTime(dest, took)
+    if not dest or not db or type(db.flightTimes) ~= "table" then
+        return
+    end
+    took = tonumber(took)
+    if not took then
+        return
+    end
+    took = math.floor(took + 0.5)
+    if took < 5 or took > 3600 then
+        return
+    end
+    -- A flight cannot finish faster than the path. A short reading is a trip
+    -- that ended early, and it should not replace the real time.
+    local yards = tonumber(dest.pathYards)
+    if yards and yards >= 200 and yards <= 40000 and took < yards / 90 then
+        return
+    end
+    local keys = dest.routes
+    if type(keys) ~= "table" then
+        keys = dest.route and { dest.route } or nil
+    end
+    if not keys then
+        return
+    end
+    if type(db.flightRuns) ~= "table" then
+        db.flightRuns = {}
+    end
+    for index = 1, #keys do
+        local key = keys[index]
+        if type(key) == "string" and key ~= "" then
+            local runs = db.flightRuns[key]
+            if type(runs) ~= "table" then
+                runs = {}
+                local prev = db.flightTimes[key]
+                if type(prev) == "number" and prev >= 5 and prev <= 3600 then
+                    runs[1] = math.floor(prev + 0.5)
+                end
+            end
+            runs[#runs + 1] = took
+            while #runs > 5 do
+                table.remove(runs, 1)
+            end
+            db.flightRuns[key] = runs
+            local typical = F.FlightTypical(runs)
+            if typical then
+                db.flightTimes[key] = typical
+            end
+        end
+    end
+end
+
+function F.FlightWorld(dest)
+    if not dest then
+        return nil
+    end
+    if dest.map and not dest.staleMap then
+        local zx, zy = F.PosOnMap(dest.map)
+        if zx then
+            local wx, wy = F.MapWorld(dest.map, zx, zy)
+            if wx then
+                return wx, wy
+            end
+        end
+    end
+    if dest.ux and dest.ox and not dest.staleUnit then
+        local ux, uy, instance = F.FlightUnit()
+        local same = not dest.uInstance or not instance or dest.uInstance == instance
+        if type(ux) == "number" and same then
+            return ux + dest.ox, uy + dest.oy
+        end
+    end
+    if dest.map and C_Map and C_Map.GetBestMapForUnit then
+        local mapOK, mapID = pcall(C_Map.GetBestMapForUnit, "player")
+        mapID = mapOK and tonumber(F.Plain(mapID))
+        if mapID and F.MapIsContinentChild(mapID, dest.map) then
+            return F.PlayerMapWorld()
+        end
+    end
+    return nil
+end
+
+function F.NotePace(px, py, now)
+    local prev = F.flightPacePos
+    if not prev or not px or not py or not now then
+        if px and py and now then
+            F.flightPacePos = { x = px, y = py, t = now }
+        end
+        return F.flightPace
+    end
+    local dt = now - (prev.t or now)
+    if dt < 0.75 then
+        return F.flightPace
+    end
+    F.flightPacePos = { x = px, y = py, t = now }
+    local moved = math.sqrt((px - prev.x) ^ 2 + (py - prev.y) ^ 2)
+    local pace = moved / dt
+    -- Slowing down clears the pace, so landing is not treated as still flying.
+    if pace < 12 then
+        F.flightPace = nil
+        return nil
+    end
+    if pace > 80 then
+        return F.flightPace
+    end
+    if not F.flightPace then
+        F.flightPace = pace
+    else
+        F.flightPace = F.flightPace * 0.65 + pace * 0.35
+    end
+    return F.flightPace
+end
+
+function F.PathRemain(dest, px, py)
+    local hops = dest and dest.hops
+    if type(hops) ~= "table" or #hops < 1 or not px or not py then
+        return nil
+    end
+    local hop = F.flightHop or 1
+    if hop < 1 then
+        hop = 1
+    elseif hop > #hops then
+        hop = #hops
+    end
+    local function project(seg)
+        local dx = seg.x2 - seg.x1
+        local dy = seg.y2 - seg.y1
+        local len2 = dx * dx + dy * dy
+        local along = 0
+        if len2 > 1 then
+            along = ((px - seg.x1) * dx + (py - seg.y1) * dy) / len2
+            if along < 0 then
+                along = 0
+            elseif along > 1 then
+                along = 1
+            end
+        end
+        local qx = seg.x1 + dx * along
+        local qy = seg.y1 + dy * along
+        local off = math.sqrt((px - qx) ^ 2 + (py - qy) ^ 2)
+        local length = seg.len or math.sqrt(len2)
+        return off, (1 - along) * length
+    end
+    local function rest(index, tail)
+        local yards = tail
+        for step = index + 1, #hops do
+            yards = yards + (hops[step].len or 0)
+        end
+        return yards
+    end
+    local bestOff, bestHop, bestYards
+    local last = hop + 2
+    if last > #hops then
+        last = #hops
+    end
+    for index = hop, last do
+        local off, tail = project(hops[index])
+        if not bestOff or off < bestOff then
+            bestOff = off
+            bestHop = index
+            bestYards = rest(index, tail)
+        end
+    end
+    if not bestOff or bestOff > 900 or not bestYards then
+        return nil
+    end
+    F.flightHop = bestHop
+    return bestYards
 end
 
 function F.FlightUnit()
@@ -5287,10 +5838,22 @@ function F.RememberFlight(index)
     if not index then
         return
     end
-    local name = F.FlightName(index)
+    local now = F.Now()
+    if F.flightDest and F.flightDest.route and F.flightLock and now and (now - F.flightLock) < 2 then
+        return
+    end
+    if F.OnTaxi() and F.flightStart and F.flightDest and F.flightDest.route and now and (now - F.flightStart) > 3 then
+        return
+    end
+    pcall(F.CacheTaxiMap)
+    local cached = F.taxiCache and F.taxiCache.nodes and F.taxiCache.nodes[index]
+    local name = (cached and cached.short) or F.FlightName(index)
     local x, y = F.NodeXY(index)
     x, y = F.TaxiNorm(x, y)
-    local mapID = F.TaxiMapID()
+    if (not x or not y) and cached and cached.x then
+        x, y = cached.x, cached.y
+    end
+    local mapID = F.TaxiMapID() or (F.taxiCache and F.taxiCache.mapID)
     if (not name or not x) and mapID and C_TaxiMap and C_TaxiMap.GetAllTaxiNodes then
         local ok, nodes = pcall(C_TaxiMap.GetAllTaxiNodes, mapID)
         if ok and type(nodes) == "table" then
@@ -5323,12 +5886,7 @@ function F.RememberFlight(index)
         return
     end
     local dest = { name = name }
-    local origin = F.TaxiOrigin()
-    local fromName, toName = F.TaxiFullName(origin), F.TaxiFullName(index)
-    if fromName and toName then
-        dest.route = fromName .. " > " .. toName
-    end
-    dest.pathRatio = F.TaxiPathRatio(index, origin, mapID)
+    F.DescribeFlight(dest, index, mapID)
     if x and y and mapID then
         dest.map = mapID
         dest.zx = x
@@ -5372,7 +5930,10 @@ function F.RememberFlight(index)
     local before = F.flightDest
     if before and before.name == name then
         dest.route = dest.route or before.route
+        dest.routes = dest.routes or before.routes
         dest.pathRatio = dest.pathRatio or before.pathRatio
+        dest.pathYards = dest.pathYards or before.pathYards
+        dest.hops = dest.hops or before.hops
     end
     F.flightDest = dest
     F.flightEta = nil
@@ -5382,6 +5943,13 @@ function F.RememberFlight(index)
     F.flightSaid = false
     F.flightStart = nil
     F.flightLandAt = nil
+    F.flightHop = nil
+    F.flightPace = nil
+    F.flightPacePos = nil
+    F.flightRemain = nil
+    if dest.route then
+        F.flightLock = now or F.Now()
+    end
 end
 
 function F.FlightTrack(dest)
@@ -5422,14 +5990,68 @@ function F.FlightTrack(dest)
     return nil
 end
 
+function F.FlightClockLine(dest, seconds)
+    return string.format("%s   %s", dest.name, F.FlightClock(seconds))
+end
+
+function F.TrackFlight(dest, now)
+    if not dest or not now then
+        return
+    end
+    if not dest.hops and not dest.pathYards then
+        return
+    end
+    local px, py = F.FlightWorld(dest)
+    if not px then
+        return
+    end
+    F.NotePace(px, py, now)
+    if dest.hops then
+        F.flightRemain = F.PathRemain(dest, px, py)
+    end
+end
+
+function F.PathSeconds(dest, now)
+    if not dest or not now or not F.flightPace or F.flightPace < 1 then
+        return nil
+    end
+    local remain = F.flightRemain
+    if not remain and dest.pathYards and F.flightStart then
+        remain = dest.pathYards - F.flightPace * (now - F.flightStart)
+    end
+    if not remain then
+        return nil
+    end
+    if remain < 0 then
+        remain = 0
+    end
+    local raw = remain / F.flightPace
+    if raw > 3600 then
+        raw = 3600
+    end
+    return raw
+end
+
+function F.FollowPath(raw, now)
+    if not raw or not now then
+        return nil
+    end
+    local left = F.FlightLeft(now)
+    if not left then
+        F.flightEta = raw
+    elseif raw + 8 < left or raw > left + 8 then
+        F.flightEta = left + (raw - left) * 0.35
+    else
+        F.flightEta = left
+    end
+    F.flightEtaAt = now
+    return F.FlightLeft(now)
+end
+
 function F.FlightLine(now)
     local dest = F.flightDest
     if not dest or type(dest.name) ~= "string" or dest.name == "" then
         return nil
-    end
-    local known = dest.route and db and db.flightTimes and db.flightTimes[dest.route]
-    if known and now and F.flightStart then
-        return string.format("%s   %s", dest.name, F.FlightClock(known - (now - F.flightStart)))
     end
     if dest.map and not dest.originZX then
         local ox, oy = F.PosOnMap(dest.map)
@@ -5452,6 +6074,37 @@ function F.FlightLine(now)
                 F.flightSpace = nil
             end
         end
+    end
+    F.TrackFlight(dest, now)
+    local known = F.KnownFlight(dest)
+    local elapsed = (now and F.flightStart) and (now - F.flightStart) or nil
+    if known and elapsed then
+        local leftKnown = known - elapsed
+        local yards = tonumber(dest.pathYards)
+        local remain = F.flightRemain
+        if remain and not dest.remainStart then
+            dest.remainStart = remain
+        end
+        -- Only abandon a saved time that has already hit zero when the bird has
+        -- moved along the path and a long stretch is still left. A stuck
+        -- position would otherwise throw the clock back up at the landing.
+        local progressed = remain and dest.remainStart and remain < dest.remainStart * 0.85
+        local stillFar = progressed and yards and remain > 350 and remain > yards * 0.2
+        if leftKnown > 0 or not stillFar then
+            if leftKnown < 0 then
+                leftKnown = 0
+            end
+            return F.FlightClockLine(dest, leftKnown)
+        end
+        F.flightEta = nil
+        F.flightEtaAt = nil
+    end
+    local along = F.FollowPath(F.PathSeconds(dest, now), now)
+    if along then
+        return F.FlightClockLine(dest, along)
+    end
+    if dest.pathYards and not F.flightPace and elapsed and elapsed < 4 then
+        return F.FlightClockLine(dest, dest.pathYards / 22)
     end
     local space, px, py, dx, dy, minMoved, minLeft, maxSpeed = F.FlightTrack(dest)
     if space and space ~= F.flightSpace then
@@ -5492,9 +6145,39 @@ function F.FlightLine(now)
     return dest.name
 end
 
+function F.Airborne(now)
+    if not F.flightDest or not F.flightStart or not now then
+        return false
+    end
+    local elapsed = now - F.flightStart
+    if elapsed < 2 or elapsed > 3600 then
+        return false
+    end
+    local pos = F.flightPacePos
+    if F.flightPace and F.flightPace > 12 and pos and pos.t and (now - pos.t) <= 1.5 then
+        return true
+    end
+    return false
+end
+
+function F.ClearFlight()
+    F.flightStart = nil
+    F.flightLandAt = nil
+    F.flightDest = nil
+    F.flightEta = nil
+    F.flightEtaAt = nil
+    F.flightSample = nil
+    F.flightSpace = nil
+    F.flightHop = nil
+    F.flightPace = nil
+    F.flightPacePos = nil
+    F.flightRemain = nil
+    F.flightLock = nil
+end
+
 function F.FlightRoute()
     local now = F.Now()
-    if F.OnTaxi() then
+    if F.OnTaxi() or F.Airborne(now) then
         if not F.flightStart then
             F.flightStart = now
             F.flightSaid = false
@@ -5509,18 +6192,11 @@ function F.FlightRoute()
         local took = F.flightLandAt - F.flightStart
         local flew = took >= 3
         local name = F.flightDest and F.flightDest.name
-        local route = F.flightDest and F.flightDest.route
-        if route and db and db.flightTimes and took >= 5 and took <= 3600 then
-            db.flightTimes[route] = math.floor(took + 0.5)
+        if flew then
+            F.SaveFlightTime(F.flightDest, took)
         end
         F.flightSaid = true
-        F.flightStart = nil
-        F.flightLandAt = nil
-        F.flightDest = nil
-        F.flightEta = nil
-        F.flightEtaAt = nil
-        F.flightSample = nil
-        F.flightSpace = nil
+        F.ClearFlight()
         if flew and type(name) == "string" and name ~= "" and F.Enabled("warnArrive") then
             F.Say(name .. " reached.")
         end
@@ -5692,6 +6368,9 @@ function F.UpdateNav()
         return
     end
     pcall(F.RefreshNav)
+    if F.TimerTick then
+        pcall(F.TimerTick)
+    end
 end
 
 function F.PlaceCoords()
@@ -5706,6 +6385,1927 @@ function F.PlaceCoords()
     navPlace:SetPoint("TOPLEFT", F.navFoot, "TOPLEFT", inset, -8)
     F.navFlight:ClearAllPoints()
     F.navFlight:SetPoint("TOPLEFT", F.navFoot, "TOPLEFT", inset, -36)
+end
+
+function F.TimerMailFrame()
+    local mail = F.FindFrame("MiniMapMailFrame")
+    if not mail and MinimapCluster and MinimapCluster.IndicatorFrame then
+        mail = MinimapCluster.IndicatorFrame.MailFrame
+    end
+    return mail
+end
+
+function F.TimerFramesOverlap(a, b)
+    if not a or not b or not a.IsShown or not b.IsShown then
+        return false
+    end
+    local shownA, shownB = false, false
+    pcall(function()
+        shownA = a:IsShown()
+        shownB = b:IsShown()
+    end)
+    if not shownA or not shownB then
+        return false
+    end
+    local function box(frame)
+        local left, right, bottom, top, scale
+        local ok = pcall(function()
+            left = F.Plain(frame:GetLeft())
+            right = F.Plain(frame:GetRight())
+            bottom = F.Plain(frame:GetBottom())
+            top = F.Plain(frame:GetTop())
+            scale = F.Plain(frame:GetEffectiveScale()) or 1
+        end)
+        if not ok or type(left) ~= "number" or type(right) ~= "number" or type(bottom) ~= "number" or type(top) ~= "number" then
+            return nil
+        end
+        if type(scale) ~= "number" or scale <= 0 then
+            scale = 1
+        end
+        return left * scale, right * scale, bottom * scale, top * scale
+    end
+    local al, ar, ab, at = box(a)
+    local bl, br, bb, bt = box(b)
+    if not al or not bl then
+        return false
+    end
+    return al < br - 2 and ar > bl + 2 and ab < bt - 2 and at > bb + 2
+end
+
+function F.TimerNow(kind)
+    if kind == "local" then
+        if not time then
+            return nil
+        end
+        local ok, now = pcall(time)
+        if ok and type(now) == "number" and now > 100000000 then
+            return now
+        end
+        return nil
+    end
+    if GetServerTime then
+        local ok, now = pcall(GetServerTime)
+        if ok and type(now) == "number" and now > 100000000 then
+            return now
+        end
+    end
+    return nil
+end
+
+function F.TimerClock()
+    local server = F.TimerNow("server")
+    if server then
+        return server, "server"
+    end
+    local localNow = F.TimerNow("local")
+    if localNow then
+        return localNow, "local"
+    end
+    return nil, nil
+end
+
+function F.TimerSecondsLeft()
+    local ends = db and tonumber(db.timerEnd)
+    if not ends then
+        return nil
+    end
+    local now = F.TimerNow(db.timerClock == "local" and "local" or "server")
+    if not now then
+        return nil
+    end
+    return ends - now
+end
+
+function F.TimerLength()
+    if not db then
+        return 0
+    end
+    local total = (tonumber(db.timerHours) or 0) * 3600 + (tonumber(db.timerMinutes) or 0) * 60 + (tonumber(db.timerSeconds) or 0)
+    return F.Clamp(math.floor(total), 0, 48 * 3600)
+end
+
+function F.TimerSetLength(hours, minutes, seconds)
+    local total = (tonumber(hours) or 0) * 3600 + (tonumber(minutes) or 0) * 60 + (tonumber(seconds) or 0)
+    total = F.Clamp(math.floor(total), 0, 48 * 3600)
+    if db then
+        db.timerHours = math.floor(total / 3600)
+        db.timerMinutes = math.floor(total / 60) % 60
+        db.timerSeconds = total % 60
+    end
+    return total
+end
+
+function F.TimerClockText(seconds)
+    seconds = math.max(0, math.floor((tonumber(seconds) or 0) + 0.5))
+    local hours = math.floor(seconds / 3600)
+    local mins = math.floor(seconds / 60) % 60
+    local secs = seconds % 60
+    if hours > 0 then
+        return string.format("%d:%02d:%02d", hours, mins, secs)
+    end
+    return string.format("%d:%02d", mins, secs)
+end
+
+function F.TimerCleanMessage(text)
+    if type(text) ~= "string" then
+        return ""
+    end
+    text = string.gsub(text, "[%c]", " ")
+    text = string.gsub(text, "^%s+", "")
+    text = string.gsub(text, "%s+$", "")
+    if string.len(text) > 255 then
+        text = string.sub(text, 1, 255)
+    end
+    return text
+end
+
+function F.TimerInRaid()
+    if IsInRaid then
+        local ok, value = pcall(IsInRaid)
+        if ok then
+            return value and true or false
+        end
+    end
+    if UnitInRaid then
+        local ok, value = pcall(UnitInRaid, "player")
+        return ok and value and true or false
+    end
+    return false
+end
+
+function F.TimerInGroup()
+    if F.TimerInRaid() then
+        return true
+    end
+    if IsInGroup then
+        local ok, value = pcall(IsInGroup)
+        if ok then
+            return value and true or false
+        end
+    end
+    if GetNumGroupMembers then
+        local ok, count = pcall(GetNumGroupMembers)
+        if ok and type(count) == "number" then
+            return count > 0
+        end
+    end
+    if GetNumPartyMembers then
+        local ok, count = pcall(GetNumPartyMembers)
+        return ok and type(count) == "number" and count > 0
+    end
+    return false
+end
+
+function F.TimerInInstanceGroup()
+    if not IsInGroup or not LE_PARTY_CATEGORY_INSTANCE then
+        return false
+    end
+    local ok, value = pcall(IsInGroup, LE_PARTY_CATEGORY_INSTANCE)
+    return ok and value and true or false
+end
+
+function F.TimerInGuild()
+    if not IsInGuild then
+        return false
+    end
+    local ok, value = pcall(IsInGuild)
+    return ok and value and true or false
+end
+
+function F.TimerIsOfficer()
+    if C_GuildInfo and C_GuildInfo.IsGuildOfficer then
+        local ok, value = pcall(C_GuildInfo.IsGuildOfficer)
+        if ok and value then
+            return true
+        end
+    end
+    if CanEditOfficerNote then
+        local ok, value = pcall(CanEditOfficerNote)
+        if ok and value then
+            return true
+        end
+    end
+    return false
+end
+
+function F.TimerChannelShort(name)
+    local short = string.match(name or "", "^(.-)%s+%-%s+")
+    if short and short ~= "" then
+        return short
+    end
+    return name or ""
+end
+
+function F.TimerJoinedNames()
+    local names = {}
+    if not GetChannelList then
+        return names
+    end
+    local ok, values = pcall(function()
+        return { GetChannelList() }
+    end)
+    if not ok or type(values) ~= "table" then
+        return names
+    end
+    local stride = 3
+    if type(values[3]) == "string" then
+        stride = 2
+    elseif type(values[3]) == "number" and values[3] > 1 and type(values[4]) == "string" then
+        stride = 2
+    end
+    local index = 1
+    while index <= #values do
+        local id = values[index]
+        local name = values[index + 1]
+        if type(id) ~= "number" or type(name) ~= "string" or name == "" then
+            break
+        end
+        local skip = false
+        if stride == 3 then
+            skip = values[index + 2] == true
+        end
+        if not skip then
+            names[#names + 1] = name
+        end
+        index = index + stride
+    end
+    return names
+end
+
+function F.TimerZoneNames()
+    local names = {}
+    if not EnumerateServerChannels then
+        return names
+    end
+    local ok, values = pcall(function()
+        return { EnumerateServerChannels() }
+    end)
+    if not ok or type(values) ~= "table" then
+        return names
+    end
+    for index = 1, #values do
+        if type(values[index]) == "string" and values[index] ~= "" then
+            names[#names + 1] = values[index]
+        end
+    end
+    return names
+end
+
+function F.TimerZoneChannel(kind)
+    local want = string.lower(kind)
+    local joinedNames = F.TimerJoinedNames()
+    for index = 1, #joinedNames do
+        if string.lower(F.TimerChannelShort(joinedNames[index])) == want then
+            return joinedNames[index], true
+        end
+    end
+    local zoneNames = F.TimerZoneNames()
+    for index = 1, #zoneNames do
+        if string.lower(F.TimerChannelShort(zoneNames[index])) == want then
+            return zoneNames[index], false
+        end
+    end
+    return nil, false
+end
+
+function F.TimerCleanName(text)
+    if type(text) ~= "string" then
+        return ""
+    end
+    text = string.gsub(text, "[^%a '%-]", "")
+    text = string.gsub(text, "%s+", " ")
+    text = string.gsub(text, "%s*%-%s*", "-")
+    text = string.gsub(text, "^[ %-]+", "")
+    if string.len(text) > 48 then
+        text = string.sub(text, 1, 48)
+    end
+    text = string.gsub(text, "[ %-]+$", "")
+    return text
+end
+
+-- A Battle.net whisper reaches a friend on any realm. A character whisper only reaches linked realms.
+function F.TimerBnetFriend(name)
+    local bn = C_BattleNet
+    if not BNSendWhisper or not BNGetNumFriends or not bn or not bn.GetFriendAccountInfo then
+        return nil
+    end
+    local function squash(text)
+        return string.gsub(string.lower(text or ""), "[%s'%-]", "")
+    end
+    local want = squash(string.match(name, "^([^%-]+)") or name)
+    local wantRealm = string.match(name, "%-(.+)$")
+    wantRealm = wantRealm and squash(wantRealm) or nil
+    local function fits(game)
+        if type(game) ~= "table" or game.isOnline == false then
+            return false
+        end
+        local character = F.Plain(game.characterName)
+        if type(character) ~= "string" or squash(string.match(character, "^([^%-]+)") or character) ~= want then
+            return false
+        end
+        local realm = F.Plain(game.realmName)
+        return not wantRealm or type(realm) ~= "string" or squash(realm) == wantRealm
+    end
+    local ok, count = pcall(BNGetNumFriends)
+    count = ok and F.Plain(count) or nil
+    if type(count) ~= "number" then
+        return nil
+    end
+    for index = 1, count do
+        local okAccount, account = pcall(bn.GetFriendAccountInfo, index)
+        local id = okAccount and type(account) == "table" and F.Plain(account.bnetAccountID) or nil
+        if type(id) == "number" then
+            if fits(account.gameAccountInfo) then
+                return id
+            end
+            if bn.GetFriendNumGameAccounts and bn.GetFriendGameAccountInfo then
+                local okGames, games = pcall(bn.GetFriendNumGameAccounts, index)
+                games = okGames and F.Plain(games) or nil
+                for game = 1, (type(games) == "number" and games or 0) do
+                    local okGame, info = pcall(bn.GetFriendGameAccountInfo, index, game)
+                    if okGame and fits(info) then
+                        return id
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function F.TimerWhisperNames()
+    local names = {}
+    local seen = {}
+    if not db then
+        return names
+    end
+    for index = 1, 3 do
+        local name = F.TimerCleanName(db["timerWhisper" .. index])
+        local key = string.lower(name)
+        if name ~= "" and not seen[key] then
+            seen[key] = true
+            names[#names + 1] = name
+        end
+    end
+    return names
+end
+
+function F.TimerCollectChannels()
+    local list = {}
+    local function add(id, label, chatType, target, joined)
+        list[#list + 1] = {
+            id = id,
+            label = label,
+            chatType = chatType,
+            target = target,
+            joined = joined and true or false,
+        }
+    end
+    add("say", "Say", "SAY", nil, true)
+    add("yell", "Yell", "YELL", nil, true)
+    local generalName, generalJoined = F.TimerZoneChannel("General")
+    if generalName then
+        add("general", "General Chat", "CHANNEL", "General", generalJoined)
+    end
+    local tradeName, tradeJoined = F.TimerZoneChannel("Trade")
+    if tradeName then
+        add("trade", "Trade Chat", "CHANNEL", "Trade", tradeJoined)
+    end
+    add("whisper", "Whispers", "WHISPER", nil, true)
+    return list
+end
+
+function F.TimerInvalidateChannels()
+    F.timerChannelCache = nil
+end
+
+function F.TimerChannels()
+    local now = GetTime and GetTime() or 0
+    if F.timerChannelCache and F.timerChannelCacheAt and (now - F.timerChannelCacheAt) < 0.25 then
+        return F.timerChannelCache
+    end
+    local list = F.TimerCollectChannels()
+    F.timerChannelCache = list
+    F.timerChannelCacheAt = now
+    return list
+end
+
+function F.TimerFindChannel(id)
+    if type(id) ~= "string" or id == "" then
+        return nil
+    end
+    local want = string.lower(id)
+    local list = F.TimerChannels()
+    for index = 1, #list do
+        if string.lower(list[index].id) == want then
+            return list[index]
+        end
+    end
+    return nil
+end
+
+function F.TimerChannelKey()
+    local list = F.TimerChannels()
+    local parts = {}
+    for index = 1, #list do
+        parts[index] = list[index].id .. (list[index].joined and "+" or "-")
+    end
+    return table.concat(parts, "|")
+end
+
+function F.TimerChannelNumber(channel)
+    if not GetChannelName or not channel then
+        return nil
+    end
+    local function lookup(name)
+        if type(name) ~= "string" or name == "" then
+            return nil
+        end
+        local id, resolved
+        local ok = pcall(function()
+            id, resolved = GetChannelName(name)
+        end)
+        id = ok and F.Plain(id) or nil
+        resolved = ok and F.Plain(resolved) or nil
+        if type(id) ~= "number" or id <= 0 then
+            return nil
+        end
+        if type(resolved) == "string" and channel.target then
+            local want = string.lower(channel.target)
+            local short = string.lower(F.TimerChannelShort(resolved))
+            if short ~= want and string.lower(resolved) ~= string.lower(channel.label or "") then
+                return nil
+            end
+        end
+        return id
+    end
+    local id = lookup(channel.label) or lookup(channel.target)
+    if id or not channel.target then
+        return id
+    end
+    local want = string.lower(channel.target)
+    local names = F.TimerJoinedNames()
+    for index = 1, #names do
+        if string.lower(F.TimerChannelShort(names[index])) == want then
+            id = lookup(names[index])
+            if id then
+                return id
+            end
+        end
+    end
+    return nil
+end
+
+function F.TimerChatEvent(chatType)
+    if chatType == "SAY" then
+        return "CHAT_MSG_SAY"
+    end
+    if chatType == "YELL" then
+        return "CHAT_MSG_YELL"
+    end
+    if chatType == "CHANNEL" then
+        return "CHAT_MSG_CHANNEL"
+    end
+    return nil
+end
+
+function F.TimerSendChat(body, chatType, target)
+    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+    if not send or type(body) ~= "string" or body == "" then
+        return false
+    end
+    return pcall(send, body, chatType, nil, target) and true or false
+end
+
+function F.TimerSameText(heard, want)
+    if type(heard) ~= "string" then
+        return true
+    end
+    local function tidy(text)
+        text = string.lower(text or "")
+        text = string.gsub(text, "^%s+", "")
+        text = string.gsub(text, "%s+$", "")
+        return text
+    end
+    return tidy(heard) == tidy(want)
+end
+
+function F.TimerFromMe(author)
+    if type(author) ~= "string" or not UnitName then
+        return true
+    end
+    local ok, me = pcall(UnitName, "player")
+    me = ok and F.Plain(me) or nil
+    if type(me) ~= "string" or me == "" then
+        return true
+    end
+    return string.find(string.lower(author), string.lower(me), 1, true) == 1
+end
+
+-- The game only shows our own line in chat once the server takes it, so that echo is the proof it was sent.
+function F.TimerWatchChat()
+    if F.timerChatWatch then
+        return
+    end
+    local watch = CreateFrame("Frame")
+    for _, event in ipairs({ "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_CHANNEL", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_SYSTEM", "CHAT_MSG_BN_WHISPER_INFORM", "CHAT_MSG_BN_WHISPER_PLAYER_OFFLINE" }) do
+        pcall(watch.RegisterEvent, watch, event)
+    end
+    watch:SetScript("OnEvent", function(_, event, text, author, ...)
+        local bnetId = F.Plain((select(11, ...)))
+        F.TimerHeardChat(event, F.Plain(text), F.Plain(author), bnetId)
+    end)
+    F.timerChatWatch = watch
+end
+
+function F.TimerExpect(await)
+    if F.timerAwait then
+        F.TimerFinishAwait()
+    end
+    F.TimerWatchChat()
+    await.untilAt = (GetTime and GetTime() or 0) + 5
+    F.timerAwait = await
+end
+
+function F.TimerHeardChat(event, text, author, bnetId)
+    local await = F.timerAwait
+    if not await then
+        return
+    end
+    if await.chatType == "WHISPER" then
+        if event == "CHAT_MSG_BN_WHISPER_INFORM" or event == "CHAT_MSG_BN_WHISPER_PLAYER_OFFLINE" then
+            local inform = event == "CHAT_MSG_BN_WHISPER_INFORM"
+            if not inform or F.TimerSameText(text, await.text) then
+                for index = 1, #await.names do
+                    local name = await.names[index]
+                    local via = await.via[name]
+                    if via and not await.result[name] and (type(bnetId) ~= "number" or bnetId == via) then
+                        await.result[name] = inform and "sent" or "offline"
+                        break
+                    end
+                end
+            end
+        elseif event == "CHAT_MSG_WHISPER_INFORM" and F.TimerSameText(text, await.text) then
+            local target = type(author) == "string" and string.lower(author) or nil
+            for index = 1, #await.names do
+                local name = await.names[index]
+                local short = string.lower(string.match(name, "^([^%-]+)") or name)
+                if not await.via[name] and not await.result[name] and (not target or string.find(target, short, 1, true) == 1) then
+                    await.result[name] = "sent"
+                    break
+                end
+            end
+        elseif event == "CHAT_MSG_SYSTEM" and type(text) == "string" then
+            local line = string.lower(text)
+            local refusal = string.find(line, "no ", 1, true) or string.find(line, "not ", 1, true)
+            for index = 1, #await.names do
+                local name = await.names[index]
+                local short = string.lower(string.match(name, "^([^%-]+)") or name)
+                local known = type(ERR_CHAT_PLAYER_NOT_FOUND_S) == "string" and string.lower(string.format(ERR_CHAT_PLAYER_NOT_FOUND_S, name)) == line
+                if not await.via[name] and not await.result[name] and (known or (refusal and string.find(line, short, 1, true))) then
+                    await.result[name] = "missing"
+                end
+            end
+        end
+        for index = 1, #await.names do
+            if not await.result[await.names[index]] then
+                return
+            end
+        end
+        F.TimerFinishAwait()
+        return
+    end
+    if event == F.TimerChatEvent(await.chatType) and F.TimerFromMe(author) and F.TimerSameText(text, await.text) then
+        await.heard = true
+        F.TimerFinishAwait()
+    end
+end
+
+function F.TimerFinishAwait()
+    local await = F.timerAwait
+    if not await then
+        return
+    end
+    F.timerAwait = nil
+    if await.chatType ~= "WHISPER" then
+        if await.heard then
+            if not await.quiet then
+                F.Say("Sent to " .. await.label .. ".")
+            end
+        else
+            F.Say(await.label .. " did not show the message, so it was not sent.")
+            F.Say(await.text)
+        end
+        return
+    end
+    local sent, missing, offline, unknown = {}, {}, {}, {}
+    for index = 1, #await.names do
+        local name = await.names[index]
+        local result = await.result[name]
+        if result == "sent" then
+            sent[#sent + 1] = name
+        elseif result == "missing" then
+            missing[#missing + 1] = name
+        elseif result == "offline" then
+            offline[#offline + 1] = name
+        else
+            unknown[#unknown + 1] = name
+        end
+    end
+    if #sent > 0 and (not await.quiet or #missing > 0 or #offline > 0 or #unknown > 0) then
+        F.Say("Whispered " .. table.concat(sent, ", ") .. ".")
+    end
+    if #missing > 0 then
+        F.Say("No character named " .. table.concat(missing, ", ") .. " could be reached. If they are on another realm, add the realm, like Name-Realm.")
+    end
+    if #offline > 0 then
+        F.Say(table.concat(offline, ", ") .. " went offline on Battle.net.")
+    end
+    if #unknown > 0 then
+        F.Say("The whisper to " .. table.concat(unknown, ", ") .. " did not show in chat, so it was not sent.")
+    end
+    if #sent == 0 then
+        F.Say(await.text)
+    end
+end
+
+function F.TimerCheckAwait()
+    local await = F.timerAwait
+    if await and (GetTime and GetTime() or 0) > (await.untilAt or 0) then
+        F.TimerFinishAwait()
+    end
+end
+
+function F.TimerWhisper(text, names, quiet)
+    local await = { chatType = "WHISPER", text = text, names = {}, result = {}, via = {}, quiet = quiet }
+    for index = 1, #names do
+        local name = names[index]
+        await.names[#await.names + 1] = name
+        local bnetId = F.TimerBnetFriend(name)
+        if bnetId then
+            await.via[name] = bnetId
+            if not pcall(BNSendWhisper, bnetId, text) then
+                await.result[name] = "refused"
+            end
+        elseif not F.TimerSendChat(text, "WHISPER", name) then
+            await.result[name] = "refused"
+        end
+    end
+    F.TimerExpect(await)
+end
+
+-- Say, Yell, and numbered channels refuse an addon unless the player just clicked or pressed a key.
+function F.TimerPostNow(text, channel, quiet)
+    if type(text) ~= "string" or text == "" or not channel then
+        return false
+    end
+    local target
+    if channel.chatType == "CHANNEL" then
+        target = F.TimerChannelNumber(channel)
+        if not target then
+            F.TimerJoin(channel)
+            F.Say("Joining " .. channel.label .. ". Click Send again in a moment.")
+            return false
+        end
+    end
+    if not F.TimerSendChat(text, channel.chatType, target) then
+        F.Say("The game would not send to " .. channel.label .. ".")
+        return false
+    end
+    F.TimerExpect({ chatType = channel.chatType, text = text, label = channel.label, quiet = quiet })
+    return true
+end
+
+function F.TimerJoin(channel)
+    if not channel or channel.chatType ~= "CHANNEL" or not JoinChannelByName then
+        return false
+    end
+    local name = channel.target or channel.label
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    local ok = pcall(JoinChannelByName, name)
+    return ok
+end
+
+function F.PlayTimerSound()
+    local _, kit = F.CampfireSoundById("alarm")
+    if not kit then
+        _, kit = F.CampfireSoundById("raid")
+    end
+    if kit then
+        pcall(PlaySound, kit)
+    end
+end
+
+function F.TimerPaintButton()
+    local button = nav and nav.timerBtn
+    if not button or not button.nfLabel then
+        return
+    end
+    local remain = F.TimerSecondsLeft()
+    local running = remain and remain > 0
+    local text = "Timer"
+    if F.timerRinging then
+        local wave = 0.55 + 0.45 * math.sin((GetTime and GetTime() or 0) * 6)
+        button.nfLabel:SetAlpha(wave)
+        text = "Done"
+    else
+        button.nfLabel:SetAlpha(1)
+        if running then
+            text = F.TimerClockText(remain)
+        end
+    end
+    button.nfLabel:SetText(text)
+    local size = string.len(text) > 5 and 11 or 13
+    if button.nfTimerSize ~= size then
+        button.nfTimerSize = size
+        F.SetFontSize(button.nfLabel, size)
+    end
+    if button.nfTimerHot or running or F.timerRinging then
+        button.nfLabel:SetTextColor(F.ThemeColor("bright"))
+    else
+        button.nfLabel:SetTextColor(F.BorderColor())
+    end
+end
+
+function F.TimerShowTip(button)
+    GameTooltip:SetOwner(button, "ANCHOR_TOP")
+    GameTooltip:SetText("Timer", F.BorderColor())
+    local remain = F.TimerSecondsLeft()
+    if F.timerRinging then
+        GameTooltip:AddLine("The alarm finished. Click to open it. Right-click to clear it.", 1, 1, 1, true)
+    elseif remain and remain > 0 then
+        GameTooltip:AddLine(F.TimerClockText(remain) .. " left. Click to open it. Right-click to stop it.", 1, 1, 1, true)
+    else
+        GameTooltip:AddLine("Set an alarm. It can send a chat message to a channel that is open here.", 1, 1, 1, true)
+    end
+    local message = db and db.timerMessage or ""
+    if message ~= "" then
+        local channel = F.TimerFindChannel(db.timerChannel)
+        if channel and channel.chatType == "WHISPER" then
+            local names = F.TimerWhisperNames()
+            if #names > 0 then
+                GameTooltip:AddLine("Whispers " .. table.concat(names, ", ") .. ".", 1, 0.92, 0.55, true)
+            else
+                GameTooltip:AddLine("Whispers need a character name.", 1, 0.45, 0.32, true)
+            end
+        elseif channel then
+            GameTooltip:AddLine("When it finishes, click Send to post in " .. channel.label .. ".", 1, 0.92, 0.55, true)
+        else
+            GameTooltip:AddLine("The saved channel is not open in this area.", 1, 0.45, 0.32, true)
+        end
+    end
+    GameTooltip:Show()
+end
+
+function F.TimerPaintChannel(button)
+    if not button or not button.nfTop then
+        return
+    end
+    local selected = button.nfChannelId and db and string.lower(button.nfChannelId) == string.lower(db.timerChannel or "")
+    local hot = button.nfHover or selected
+    local br, bgc, bb = F.BorderColor()
+    local r, g, b = br, bgc, bb
+    local tr, tg, tb = br, bgc, bb
+    if hot then
+        r, g, b = F.ThemeColor("hover")
+        tr, tg, tb = F.ThemeColor("bright")
+    end
+    button.nfTop:SetColorTexture(r, g, b, 1)
+    button.nfBottom:SetColorTexture(r, g, b, 1)
+    button.nfLeft:SetColorTexture(r, g, b, 1)
+    button.nfRight:SetColorTexture(r, g, b, 1)
+    if button.nfLabel then
+        button.nfLabel:SetTextColor(tr, tg, tb)
+    end
+end
+
+function F.TimerPaintChannels()
+    local panel = F.timerPanel
+    if not panel or not panel.channelButtons then
+        return
+    end
+    for index = 1, #panel.channelButtons do
+        local button = panel.channelButtons[index]
+        if button:IsShown() then
+            F.TimerPaintChannel(button)
+        end
+    end
+end
+
+function F.TimerShowWhispers()
+    local panel = F.timerPanel
+    if not panel or not panel.whisperBoxes then
+        return
+    end
+    local open = db and string.lower(db.timerChannel or "") == "whisper"
+    if panel.whisperLabel then
+        if open then
+            panel.whisperLabel:Show()
+        else
+            panel.whisperLabel:Hide()
+        end
+    end
+    for index = 1, 3 do
+        local box = panel.whisperBoxes[index]
+        if box then
+            if open then
+                box:Show()
+                if box.nfHint then
+                    if (box:GetText() or "") == "" then
+                        box.nfHint:Show()
+                    else
+                        box.nfHint:Hide()
+                    end
+                end
+            else
+                box:Hide()
+            end
+        end
+    end
+end
+
+function F.TimerLayoutPanel()
+    local panel = F.timerPanel
+    if not panel then
+        return
+    end
+    local buttons = panel.channelButtons or {}
+    local pad = 24
+    local limit = (panel:GetWidth() or 520) - pad
+    local x = pad
+    local y = panel.channelTop or -300
+    local shown = 0
+    for index = 1, #buttons do
+        local button = buttons[index]
+        if button:IsShown() then
+            local width = button:GetWidth() or 72
+            if x > pad and x + width > limit then
+                x = pad
+                y = y - 40
+            end
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+            x = x + width + 8
+            shown = shown + 1
+        end
+    end
+    local below = y - (shown > 0 and 48 or 12)
+    if F.TimerShowWhispers then
+        F.TimerShowWhispers()
+    end
+    if panel.whisperLabel and panel.whisperLabel:IsShown() then
+        panel.whisperLabel:ClearAllPoints()
+        panel.whisperLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", pad, below)
+        below = below - 28
+        local boxWidth = math.floor(((panel:GetWidth() or 520) - pad * 2 - 16) / 3)
+        if boxWidth < 80 then
+            boxWidth = 80
+        end
+        for index = 1, 3 do
+            local box = panel.whisperBoxes and panel.whisperBoxes[index]
+            if box then
+                box:ClearAllPoints()
+                box:SetPoint("TOPLEFT", panel, "TOPLEFT", pad + (index - 1) * (boxWidth + 8), below)
+                box:SetWidth(boxWidth)
+            end
+        end
+        below = below - 52
+    end
+    if panel.missing and panel.missing:IsShown() then
+        panel.missing:ClearAllPoints()
+        panel.missing:SetPoint("TOPLEFT", panel, "TOPLEFT", pad, below)
+        panel.missing:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -pad, below)
+        below = below - 26
+    end
+    if panel.repeatCheck then
+        panel.repeatCheck:ClearAllPoints()
+        panel.repeatCheck:SetPoint("TOPLEFT", panel, "TOPLEFT", pad - 4, below + 6)
+        if panel.repeatLabel then
+            panel.repeatLabel:ClearAllPoints()
+            panel.repeatLabel:SetPoint("LEFT", panel.repeatCheck, "RIGHT", 4, 0)
+        end
+        below = below - 40
+    end
+    if panel.startBtn and panel.stopBtn then
+        panel.startBtn:ClearAllPoints()
+        panel.startBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", pad, below)
+        panel.stopBtn:ClearAllPoints()
+        panel.stopBtn:SetPoint("LEFT", panel.startBtn, "RIGHT", 12, 0)
+        below = below - 48
+    end
+    if panel.status then
+        panel.status:ClearAllPoints()
+        panel.status:SetPoint("TOPLEFT", panel, "TOPLEFT", pad, below)
+        panel.status:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -pad, below)
+        below = below - 28
+    end
+    panel:SetHeight(math.max(420, -below + 28))
+end
+
+function F.TimerNoteChannel()
+    local panel = F.timerPanel
+    if not panel or not panel.missing or not db then
+        return
+    end
+    local message = F.TimerCleanMessage(db.timerMessage)
+    local channel = message ~= "" and F.TimerFindChannel(db.timerChannel) or nil
+    local show = false
+    local note = ""
+    if message ~= "" and not channel then
+        show = true
+        note = "That channel is not open in this area."
+    elseif channel and channel.chatType == "WHISPER" and #F.TimerWhisperNames() == 0 then
+        show = true
+        note = "Type a character name to whisper."
+    end
+    local was = panel.missing:IsShown()
+    if show then
+        panel.missing:SetText(note)
+        panel.missing:Show()
+    else
+        panel.missing:Hide()
+    end
+    if was ~= show then
+        F.TimerLayoutPanel()
+    end
+end
+
+function F.TimerRefreshStatus()
+    local panel = F.timerPanel
+    if not panel or not db then
+        return
+    end
+    local remain = F.TimerSecondsLeft()
+    local text
+    if F.timerRinging then
+        text = "Finished"
+    elseif remain and remain > 0 then
+        text = F.TimerClockText(remain) .. " left"
+        if db.timerRepeat then
+            text = text .. "   Repeats"
+        end
+    elseif db.timerRepeat then
+        text = "Not running. Repeats."
+    else
+        text = "Not running"
+    end
+    if panel.status then
+        panel.status:SetText(text)
+    end
+    if panel.startBtn and panel.startBtn.nfLabel then
+        panel.startBtn.nfLabel:SetText((remain and remain > 0) and "Restart" or "Start")
+    end
+    if panel.hint and panel.message then
+        local focused = false
+        if panel.message.HasFocus then
+            local ok, value = pcall(panel.message.HasFocus, panel.message)
+            focused = ok and value and true or false
+        end
+        if (panel.message:GetText() or "") == "" and not focused then
+            panel.hint:Show()
+        else
+            panel.hint:Hide()
+        end
+    end
+end
+
+function F.RefreshTimerChannels()
+    local panel = F.timerPanel
+    if not panel then
+        return
+    end
+    F.TimerInvalidateChannels()
+    local list = F.TimerChannels()
+    panel.channelButtons = panel.channelButtons or {}
+    local buttons = panel.channelButtons
+    for index = 1, #list do
+        local channel = list[index]
+        local button = buttons[index]
+        if not button then
+            button = F.Chip(panel, "Say", 84, 16, 34)
+            button:SetScript("OnClick", function(self)
+                if db and self.nfChannelId then
+                    db.timerChannel = self.nfChannelId
+                end
+                F.TimerPaintChannels()
+                F.TimerShowWhispers()
+                F.TimerLayoutPanel()
+                F.TimerNoteChannel()
+                F.TimerRefreshStatus()
+            end)
+            button:SetScript("OnEnter", function(self)
+                self.nfHover = true
+                F.TimerPaintChannel(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText(self.nfChannelLabel or "Channel", F.BorderColor())
+                if self.nfChannelTip then
+                    GameTooltip:AddLine(self.nfChannelTip, 1, 1, 1, true)
+                end
+                GameTooltip:Show()
+            end)
+            button:SetScript("OnLeave", function(self)
+                self.nfHover = false
+                F.TimerPaintChannel(self)
+                GameTooltip:Hide()
+            end)
+            buttons[index] = button
+        end
+        button.nfChannelId = channel.id
+        button.nfChannelLabel = channel.label
+        local shown = channel.label or "Channel"
+        if string.len(shown) > 26 then
+            shown = string.sub(shown, 1, 24) .. ".."
+        end
+        button.nfLabel:SetText(shown)
+        F.SetFontSize(button.nfLabel, 16)
+        button:SetSize(math.max(84, string.len(shown) * 10 + 28), 34)
+        local click = " When the alarm goes off, click Send to post it. The game only lets an addon post here after a click."
+        if channel.id == "whisper" then
+            button.nfChannelTip = "Whisper up to three characters. Type their full names below. The whisper goes out on its own. A Battle.net friend gets a Battle.net whisper, so their realm does not matter. For anyone else on another realm, add the realm, like Name-Realm."
+        elseif channel.id == "general" then
+            button.nfChannelTip = (channel.joined and "General chat in this area." or "General chat is open here. Starting the timer joins it.") .. click
+        elseif channel.id == "trade" then
+            button.nfChannelTip = (channel.joined and "Trade chat in this city." or "Trade chat is open here. Starting the timer joins it.") .. click
+        elseif channel.id == "yell" then
+            button.nfChannelTip = "People farther away can hear this." .. click
+        else
+            button.nfChannelTip = "People nearby can hear this." .. click
+        end
+        button:Show()
+        F.TimerPaintChannel(button)
+    end
+    for index = #list + 1, #buttons do
+        buttons[index]:Hide()
+    end
+    F.TimerLayoutPanel()
+    F.TimerNoteChannel()
+    F.TimerRefreshStatus()
+end
+
+function F.TimerReadBoxes()
+    local panel = F.timerPanel
+    if not panel or not panel:IsShown() or not db then
+        return
+    end
+    local function read(box, maxValue)
+        local number = tonumber(box:GetText()) or 0
+        return F.Clamp(math.floor(number), 0, maxValue)
+    end
+    db.timerHours = read(panel.hours, 48)
+    db.timerMinutes = read(panel.mins, 59)
+    db.timerSeconds = read(panel.secs, 59)
+    db.timerMessage = F.TimerCleanMessage(panel.message:GetText())
+    if panel.whisperBoxes then
+        for index = 1, 3 do
+            local box = panel.whisperBoxes[index]
+            local name = F.TimerCleanName(box:GetText())
+            db["timerWhisper" .. index] = name
+            local typing = false
+            if box.HasFocus then
+                local ok, value = pcall(box.HasFocus, box)
+                typing = ok and value and true or false
+            end
+            if box:GetText() ~= name and not typing then
+                box.nfSilent = true
+                box:SetText(name)
+                box.nfSilent = false
+            end
+        end
+    end
+end
+
+function F.TimerSyncFields()
+    local panel = F.timerPanel
+    if not panel or not db then
+        return
+    end
+    local function focused(box)
+        if not box.HasFocus then
+            return false
+        end
+        local ok, value = pcall(box.HasFocus, box)
+        return ok and value and true or false
+    end
+    local function show(box, value)
+        if focused(box) then
+            return
+        end
+        box.nfSilent = true
+        box:SetText(tostring(value or 0))
+        box.nfSilent = false
+    end
+    show(panel.hours, db.timerHours)
+    show(panel.mins, db.timerMinutes)
+    show(panel.secs, db.timerSeconds)
+    if not focused(panel.message) then
+        panel.message.nfSilent = true
+        panel.message:SetText(db.timerMessage or "")
+        panel.message.nfSilent = false
+    end
+    if panel.whisperBoxes then
+        for index = 1, 3 do
+            local box = panel.whisperBoxes[index]
+            if not focused(box) then
+                box.nfSilent = true
+                box:SetText(db["timerWhisper" .. index] or "")
+                box.nfSilent = false
+            end
+            if box.nfHint then
+                if (box:GetText() or "") == "" then
+                    box.nfHint:Show()
+                else
+                    box.nfHint:Hide()
+                end
+            end
+        end
+    end
+    if panel.repeatCheck and panel.repeatCheck.SetChecked then
+        panel.repeatCheck:SetChecked(db.timerRepeat)
+    elseif panel.repeatCheck and panel.repeatCheck.nfLabel then
+        panel.repeatCheck.nfLabel:SetText(db.timerRepeat and "Repeats" or "Repeat")
+    end
+end
+
+function F.TimerApplyColors()
+    F.TimerPaintButton()
+    local panel = F.timerPanel
+    if not panel then
+        return
+    end
+    local br, bgc, bb = F.BorderColor()
+    local brightR, brightG, brightB = F.ThemeColor("bright")
+    if panel.title then
+        panel.title:SetTextColor(br, bgc, bb)
+    end
+    if panel.nfSubtitle then
+        panel.nfSubtitle:SetTextColor(F.ThemeColor("hover"))
+    end
+    if panel.nfDivider then
+        panel.nfDivider:SetColorTexture(br, bgc, bb, 0.85)
+    end
+    if panel.captions then
+        for index = 1, #panel.captions do
+            panel.captions[index]:SetTextColor(br, bgc, bb)
+        end
+    end
+    local function tint(box)
+        if box and box.SetTextColor then
+            box:SetTextColor(brightR, brightG, brightB)
+        end
+    end
+    tint(panel.hours)
+    tint(panel.mins)
+    tint(panel.secs)
+    tint(panel.message)
+    if panel.whisperBoxes then
+        for index = 1, #panel.whisperBoxes do
+            local box = panel.whisperBoxes[index]
+            tint(box)
+            if box.nfHint then
+                box.nfHint:SetTextColor(br, bgc, bb)
+            end
+        end
+    end
+    if panel.hint then
+        panel.hint:SetTextColor(br, bgc, bb)
+    end
+    if panel.status then
+        panel.status:SetTextColor(brightR, brightG, brightB)
+    end
+    if panel.missing then
+        panel.missing:SetTextColor(1, 0.45, 0.32)
+    end
+    if panel.repeatLabel then
+        panel.repeatLabel:SetTextColor(brightR, brightG, brightB)
+    end
+    F.TimerPaintChannels()
+end
+
+function F.PlaceTimerPanel()
+    local panel = F.timerPanel
+    if not panel then
+        return
+    end
+    if panel:GetParent() ~= UIParent then
+        panel:SetParent(UIParent)
+    end
+    panel:SetFrameStrata("DIALOG")
+    local scale = F.ResolutionScale()
+    if not scale or scale < 0.55 then
+        scale = 0.55
+    end
+    if math.abs((panel:GetScale() or 1) - scale) > 0.02 then
+        panel:SetScale(scale)
+    end
+    if panel.nfPlaced then
+        return
+    end
+    panel:ClearAllPoints()
+    local point = db and db.timerPoint
+    local x = db and tonumber(db.timerX)
+    local y = db and tonumber(db.timerY)
+    if type(point) == "string" and x and y then
+        panel:SetPoint(point, UIParent, db.timerRelPoint or point, x, y)
+    elseif nav then
+        panel:SetPoint("TOPRIGHT", nav, "TOPLEFT", -16, 0)
+    else
+        panel:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+    end
+    panel.nfPlaced = true
+end
+
+function F.TimerStart()
+    if not db then
+        return
+    end
+    F.TimerReadBoxes()
+    local total = F.TimerLength()
+    if total < 1 then
+        F.Say("Set the timer above zero.")
+        return
+    end
+    local now, kind = F.TimerClock()
+    if not now then
+        F.Say("The clock is not ready yet.")
+        return
+    end
+    local message = F.TimerCleanMessage(db.timerMessage)
+    db.timerMessage = message
+    if message ~= "" then
+        F.TimerInvalidateChannels()
+        local channel = F.TimerFindChannel(db.timerChannel)
+        if not channel then
+            F.Say("That chat channel is not available here. Pick another, or clear the message.")
+            F.TimerNoteChannel()
+            return
+        end
+        db.timerChannel = channel.id
+        if channel.chatType == "WHISPER" and #F.TimerWhisperNames() == 0 then
+            F.Say("Type a character name to whisper.")
+            F.TimerNoteChannel()
+            return
+        end
+        if channel.chatType == "CHANNEL" and not channel.joined then
+            F.TimerJoin(channel)
+            F.Say("Joining " .. channel.label .. " so the timer can speak there.")
+        end
+    end
+    db.timerClock = kind
+    db.timerEnd = now + total
+    F.timerRinging = false
+    F.TimerPaintButton()
+    F.TimerRefreshStatus()
+    F.Say("Timer set for " .. F.TimerClockText(total) .. ".")
+end
+
+function F.TimerStop()
+    local prompt = F.timerPrompt
+    local asking = prompt and prompt:IsShown()
+    local running = (db and db.timerEnd) or F.timerRinging or asking
+    F.timerRinging = false
+    if db then
+        db.timerEnd = nil
+    end
+    if asking then
+        prompt:Hide()
+    end
+    F.TimerPaintButton()
+    F.TimerRefreshStatus()
+    if asking then
+        F.Say("Timer stopped. The message was not sent.")
+    elseif running then
+        F.Say("Timer stopped.")
+    end
+end
+
+function F.CreateTimerPrompt()
+    if F.timerPrompt then
+        return F.timerPrompt
+    end
+    local prompt = CreateFrame("Frame", "NavigateForeverTimerSend", UIParent)
+    F.timerPrompt = prompt
+    prompt:SetSize(420, 196)
+    prompt:SetFrameStrata("DIALOG")
+    prompt:SetFrameLevel(90)
+    prompt:SetClampedToScreen(true)
+    prompt:SetMovable(true)
+    prompt:EnableMouse(true)
+    prompt:RegisterForDrag("LeftButton")
+    prompt:SetScript("OnDragStart", prompt.StartMoving)
+    prompt:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+    end)
+    prompt:SetPoint("TOP", UIParent, "TOP", 0, -140)
+    F.PaintPanel(prompt, 0.98)
+    F.CreateCorners(prompt, 64)
+    F.AddParticles(prompt, 8)
+    if UISpecialFrames then
+        table.insert(UISpecialFrames, "NavigateForeverTimerSend")
+    end
+
+    local brand = F.BrandIcon(prompt:CreateTexture(nil, "ARTWORK"))
+    brand:SetSize(36, 36)
+    brand:SetPoint("TOPLEFT", 18, -14)
+
+    local title = prompt:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("LEFT", brand, "RIGHT", 10, 0)
+    title:SetText("Timer finished")
+    F.SetFontSize(title, 22)
+    title:SetTextColor(F.BorderColor())
+    table.insert(accentText, title)
+    prompt.title = title
+
+    local where = prompt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    where:SetPoint("TOPLEFT", 20, -62)
+    where:SetPoint("TOPRIGHT", -20, -62)
+    where:SetJustifyH("LEFT")
+    F.SetFontSize(where, 16)
+    prompt.where = where
+
+    local line = prompt:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    line:SetPoint("TOPLEFT", 20, -88)
+    line:SetPoint("TOPRIGHT", -20, -88)
+    line:SetJustifyH("LEFT")
+    line:SetWordWrap(true)
+    if line.SetMaxLines then
+        line:SetMaxLines(2)
+    end
+    F.SetFontSize(line, 18)
+    prompt.line = line
+
+    local send = F.Chip(prompt, "Send", 140, 18, 36)
+    send:SetPoint("BOTTOMLEFT", 20, 18)
+    send:SetScript("OnClick", function()
+        F.TimerPromptSend()
+    end)
+    prompt.send = send
+
+    local skip = F.Chip(prompt, "Not now", 140, 18, 36)
+    skip:SetPoint("LEFT", send, "RIGHT", 12, 0)
+    skip:SetScript("OnClick", function()
+        prompt:Hide()
+        F.Say("The timer message was not sent.")
+    end)
+
+    prompt:Hide()
+    F.ApplyColors()
+    return prompt
+end
+
+function F.TimerShowPrompt(text, channel, quiet)
+    local prompt = F.CreateTimerPrompt()
+    prompt.nfText = text
+    prompt.nfChannelId = channel.id
+    prompt.nfQuiet = quiet
+    prompt.where:SetText("Click Send to post in " .. channel.label .. ".")
+    prompt.where:SetTextColor(F.ThemeColor("hover"))
+    prompt.line:SetText(text)
+    prompt.line:SetTextColor(F.ThemeColor("bright"))
+    prompt:Show()
+end
+
+function F.TimerPromptSend()
+    local prompt = F.timerPrompt
+    if not prompt or not prompt.nfText then
+        return
+    end
+    F.TimerInvalidateChannels()
+    local channel = F.TimerFindChannel(prompt.nfChannelId)
+    if not channel then
+        F.Say("That chat channel is not open here.")
+        return
+    end
+    if F.TimerPostNow(prompt.nfText, channel, prompt.nfQuiet) then
+        prompt:Hide()
+    end
+end
+
+function F.TimerAlarm(late, again)
+    if late <= 90 then
+        F.PlayTimerSound()
+    end
+    local message = F.TimerCleanMessage(db and db.timerMessage)
+    if late > 90 then
+        F.Say("Timer finished while you were away.")
+        return
+    end
+    if message == "" then
+        if not again then
+            F.Say("Timer finished.")
+        end
+        return
+    end
+    F.TimerInvalidateChannels()
+    local channel = F.TimerFindChannel(db.timerChannel)
+    if not channel then
+        F.Say("Timer finished. That chat channel is not available here.")
+        F.Say(message)
+        return
+    end
+    if channel.chatType == "WHISPER" then
+        local names = F.TimerWhisperNames()
+        if #names == 0 then
+            F.Say("Timer finished. Type a character name to whisper.")
+            F.Say(message)
+            return
+        end
+        F.TimerWhisper(message, names, again)
+        return
+    end
+    if channel.chatType == "CHANNEL" and not channel.joined then
+        F.TimerJoin(channel)
+    end
+    F.TimerShowPrompt(message, channel, again)
+    if not again then
+        F.Say("Timer finished. Click Send to post in " .. channel.label .. ".")
+    end
+end
+
+function F.TimerTick()
+    if not db or not nav or not nav.timerBtn then
+        return
+    end
+    local nowTick = GetTime and GetTime() or 0
+    if F.timerAwait then
+        F.TimerCheckAwait()
+    end
+    local panel = F.timerPanel
+    local panelShown = panel and panel:IsShown()
+    if panelShown and (not F.timerPollAt or nowTick - F.timerPollAt >= 1) then
+        F.timerPollAt = nowTick
+        local key = F.TimerChannelKey()
+        if key ~= F.timerChannelKey then
+            F.timerChannelKey = key
+            F.RefreshTimerChannels()
+        end
+    end
+    local remain = F.TimerSecondsLeft()
+    if not remain then
+        F.TimerPaintButton()
+        if panelShown then
+            F.TimerRefreshStatus()
+        end
+        return
+    end
+    if remain > 0 then
+        F.timerRinging = false
+        F.TimerPaintButton()
+        if panelShown then
+            F.TimerRefreshStatus()
+        end
+        return
+    end
+    local late = -remain
+    local length = F.TimerLength()
+    local again = db.timerRepeat and length >= 1 and late <= 90
+    if again then
+        local now = F.TimerNow(db.timerClock == "local" and "local" or "server")
+        if now then
+            db.timerEnd = now + length
+        else
+            db.timerEnd = nil
+            again = false
+        end
+        F.timerRinging = false
+    else
+        db.timerEnd = nil
+        F.timerRinging = late <= 90
+    end
+    F.TimerAlarm(late, again)
+    F.TimerPaintButton()
+    if panelShown then
+        F.TimerRefreshStatus()
+        F.TimerNoteChannel()
+    end
+end
+
+function F.TimerCommand(rest)
+    rest = string.gsub(rest or "", "^%s+", "")
+    rest = string.gsub(rest, "%s+$", "")
+    local mode = string.lower(rest)
+    if mode == "" then
+        F.ToggleTimer()
+        return
+    end
+    if mode == "stop" or mode == "off" or mode == "clear" or mode == "cancel" then
+        F.TimerStop()
+        return
+    end
+    if mode == "start" or mode == "on" then
+        F.TimerStart()
+        return
+    end
+    local hours, mins, secs = string.match(mode, "^(%d+):(%d+):(%d+)$")
+    if not hours then
+        mins, secs = string.match(mode, "^(%d+):(%d+)$")
+        hours = mins and 0 or nil
+    end
+    if not mins then
+        local number = tonumber(mode)
+        if not number then
+            F.Say("Usage: /nf timer, /nf timer 5, /nf timer 1:30, /nf timer stop.")
+            return
+        end
+        hours, mins, secs = 0, number, 0
+    end
+    local total = F.TimerSetLength(hours, mins, secs)
+    if total < 1 then
+        F.Say("Set the timer above zero.")
+        return
+    end
+    if F.timerPanel and F.timerPanel:IsShown() then
+        F.TimerSyncFields()
+    end
+    F.TimerStart()
+end
+
+function F.ToggleTimer()
+    if not nav or not nav.timerBtn then
+        F.Say("Still loading.")
+        return
+    end
+    if not F.timerPanel then
+        F.CreateTimerPanel()
+    end
+    local panel = F.timerPanel
+    if not panel then
+        return
+    end
+    if panel:IsShown() then
+        panel:Hide()
+        return
+    end
+    F.TimerInvalidateChannels()
+    F.TimerSyncFields()
+    F.RefreshTimerChannels()
+    F.TimerApplyColors()
+    F.timerChannelKey = F.TimerChannelKey()
+    panel:Show()
+    F.PlaceTimerPanel()
+end
+
+function F.CreateTimerPanel()
+    if F.timerPanel or not nav then
+        return
+    end
+    local panel = CreateFrame("Frame", "NavigateForeverTimer", UIParent)
+    F.timerPanel = panel
+    panel:SetSize(520, 460)
+    panel:SetFrameStrata("DIALOG")
+    panel:SetFrameLevel(80)
+    panel:EnableMouse(true)
+    panel:EnableMouseWheel(true)
+    panel:SetMovable(true)
+    panel:SetClampedToScreen(true)
+    panel:RegisterForDrag("LeftButton")
+    panel:SetScript("OnDragStart", function(self)
+        self:StartMoving()
+    end)
+    panel:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local point, _, relPoint, x, y = self:GetPoint(1)
+        if db and point and tonumber(x) and tonumber(y) then
+            db.timerPoint = point
+            db.timerRelPoint = relPoint or point
+            db.timerX = x
+            db.timerY = y
+        end
+        self.nfPlaced = true
+    end)
+    panel:SetScript("OnMouseWheel", function() end)
+    if panel.SetIgnoreParentAlpha then
+        pcall(panel.SetIgnoreParentAlpha, panel, true)
+    end
+    F.PaintPanel(panel, 0.98)
+    local brand = F.BrandIcon(panel:CreateTexture(nil, "ARTWORK"))
+    brand:SetSize(48, 48)
+    brand:SetPoint("TOPLEFT", 22, -16)
+    panel.brand = brand
+    F.CreateCorners(panel, 88)
+    F.AddParticles(panel, 16)
+    if UISpecialFrames then
+        local listed = false
+        for index = 1, #UISpecialFrames do
+            if UISpecialFrames[index] == "NavigateForeverTimer" then
+                listed = true
+            end
+        end
+        if not listed then
+            table.insert(UISpecialFrames, "NavigateForeverTimer")
+        end
+    end
+    panel:Hide()
+
+    local captions = {}
+    panel.captions = captions
+    local function caption(text, x, y, width)
+        local label = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label:SetPoint("TOPLEFT", x, y)
+        if width then
+            label:SetWidth(width)
+        end
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        label:SetText(text)
+        F.SetFontSize(label, 18)
+        label:SetTextColor(F.BorderColor())
+        captions[#captions + 1] = label
+        return label
+    end
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("LEFT", panel.brand, "RIGHT", 12, 8)
+    title:SetText("Timer")
+    F.SetFontSize(title, 26)
+    title:SetTextColor(F.BorderColor())
+    panel.title = title
+    table.insert(accentText, title)
+
+    local subtitle = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+    subtitle:SetText("Drag to move")
+    subtitle:SetWordWrap(false)
+    F.SetFontSize(subtitle, 16)
+    subtitle:SetTextColor(F.ThemeColor("hover"))
+    panel.nfSubtitle = subtitle
+
+    local divider = panel:CreateTexture(nil, "ARTWORK")
+    divider:SetPoint("TOPLEFT", 22, -78)
+    divider:SetPoint("TOPRIGHT", -22, -78)
+    divider:SetHeight(1)
+    divider:SetColorTexture(F.BorderColor())
+    panel.nfDivider = divider
+
+    local closeBtn = F.Chip(panel, "X", 36, 16, 32)
+    closeBtn:SetPoint("TOPRIGHT", -24, -20)
+    closeBtn:SetScript("OnClick", function()
+        panel:Hide()
+    end)
+
+    caption("Time", 24, -96)
+    local function numberBox(key, maxValue, x)
+        local box = CreateFrame("EditBox", nil, panel)
+        box:SetSize(78, 40)
+        box:SetPoint("TOPLEFT", x, -126)
+        box:SetAutoFocus(false)
+        box:SetFont("Fonts\\FRIZQT__.TTF", 22, "")
+        box:SetJustifyH("CENTER")
+        box:SetTextInsets(2, 2, 0, 0)
+        if box.SetNumeric then
+            box:SetNumeric(true)
+        end
+        if box.SetMaxLetters then
+            box:SetMaxLetters(2)
+        end
+        box.nfKey = key
+        box.nfMax = maxValue
+        F.PaintPanel(box, 1)
+        box:SetFrameLevel((panel:GetFrameLevel() or 1) + 4)
+        box:SetScript("OnTextChanged", function(self)
+            if self.nfSilent or not db then
+                return
+            end
+            local number = tonumber(self:GetText()) or 0
+            if number > self.nfMax then
+                number = self.nfMax
+                self.nfSilent = true
+                self:SetText(tostring(number))
+                self.nfSilent = false
+            end
+            db[self.nfKey] = number
+            F.TimerRefreshStatus()
+        end)
+        box:EnableMouseWheel(true)
+        box:SetScript("OnMouseWheel", function(self, delta)
+            local number = F.Clamp((tonumber(self:GetText()) or 0) + (delta or 0), 0, self.nfMax)
+            self:SetText(tostring(number))
+        end)
+        box:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+            F.TimerStart()
+        end)
+        box:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            panel:Hide()
+        end)
+        box:SetTextColor(F.ThemeColor("bright"))
+        return box
+    end
+    panel.hours = numberBox("timerHours", 48, 24)
+    panel.mins = numberBox("timerMinutes", 59, 168)
+    panel.secs = numberBox("timerSeconds", 59, 312)
+    caption("h", 108, -134)
+    caption("m", 252, -134)
+    caption("s", 396, -134)
+
+    caption("Message", 24, -182)
+    local message = CreateFrame("EditBox", nil, panel)
+    message:SetPoint("TOPLEFT", 24, -210)
+    message:SetPoint("TOPRIGHT", -24, -210)
+    message:SetHeight(44)
+    message:SetAutoFocus(false)
+    message:SetFont("Fonts\\FRIZQT__.TTF", 20, "")
+    message:SetJustifyH("LEFT")
+    message:SetTextInsets(8, 8, 0, 0)
+    if message.SetMaxLetters then
+        message:SetMaxLetters(255)
+    end
+    F.PaintPanel(message, 1)
+    message:SetFrameLevel((panel:GetFrameLevel() or 1) + 4)
+    message:SetTextColor(F.ThemeColor("bright"))
+    message:SetScript("OnTextChanged", function(self)
+        if self.nfSilent or not db then
+            return
+        end
+        db.timerMessage = self:GetText() or ""
+        F.TimerRefreshStatus()
+        F.TimerNoteChannel()
+        if panel.hint then
+            if (self:GetText() or "") == "" then
+                panel.hint:Show()
+            else
+                panel.hint:Hide()
+            end
+        end
+    end)
+    message:SetScript("OnEditFocusGained", function()
+        if panel.hint then
+            panel.hint:Hide()
+        end
+    end)
+    message:SetScript("OnEditFocusLost", function(self)
+        if db then
+            db.timerMessage = F.TimerCleanMessage(self:GetText())
+        end
+        F.TimerRefreshStatus()
+        F.TimerNoteChannel()
+    end)
+    message:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+        F.TimerStart()
+    end)
+    message:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        panel:Hide()
+    end)
+    panel.message = message
+    local hint = message:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    hint:SetPoint("LEFT", 12, 0)
+    hint:SetText("Message to send when it finishes")
+    F.SetFontSize(hint, 16)
+    hint:SetTextColor(F.BorderColor())
+    panel.hint = hint
+
+    caption("Channels here", 24, -268)
+    panel.channelTop = -300
+
+    panel.whisperLabel = caption("Whisper to", 24, -360)
+    panel.whisperLabel:Hide()
+    panel.whisperBoxes = {}
+    for index = 1, 3 do
+        local box = CreateFrame("EditBox", nil, panel)
+        box:SetSize(140, 40)
+        box:SetAutoFocus(false)
+        box:SetFont("Fonts\\FRIZQT__.TTF", 18, "")
+        box:SetJustifyH("LEFT")
+        box:SetTextInsets(10, 8, 0, 0)
+        if box.SetMaxLetters then
+            box:SetMaxLetters(48)
+        end
+        box.nfIndex = index
+        F.PaintPanel(box, 1)
+        box:SetFrameLevel((panel:GetFrameLevel() or 1) + 4)
+        box:SetTextColor(F.ThemeColor("bright"))
+        box:SetScript("OnEditFocusGained", function(self)
+            if self.nfHint then
+                self.nfHint:Hide()
+            end
+        end)
+        box:SetScript("OnTextChanged", function(self)
+            if self.nfSilent or not db then
+                return
+            end
+            db["timerWhisper" .. self.nfIndex] = self:GetText() or ""
+            if self.nfHint then
+                local typing = false
+                if (self:GetText() or "") == "" and self.HasFocus then
+                    local ok, value = pcall(self.HasFocus, self)
+                    typing = ok and value and true or false
+                end
+                if (self:GetText() or "") == "" and not typing then
+                    self.nfHint:Show()
+                else
+                    self.nfHint:Hide()
+                end
+            end
+            F.TimerNoteChannel()
+        end)
+        box:SetScript("OnEditFocusLost", function(self)
+            local name = F.TimerCleanName(self:GetText())
+            if db then
+                db["timerWhisper" .. self.nfIndex] = name
+            end
+            self.nfSilent = true
+            self:SetText(name)
+            self.nfSilent = false
+            if self.nfHint then
+                if name == "" then
+                    self.nfHint:Show()
+                else
+                    self.nfHint:Hide()
+                end
+            end
+            F.TimerNoteChannel()
+        end)
+        box:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+            F.TimerStart()
+        end)
+        box:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            panel:Hide()
+        end)
+        local nameHint = box:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+        nameHint:SetPoint("LEFT", 10, 0)
+        nameHint:SetText("Full name")
+        F.SetFontSize(nameHint, 16)
+        nameHint:SetTextColor(F.BorderColor())
+        box.nfHint = nameHint
+        box:Hide()
+        panel.whisperBoxes[index] = box
+    end
+
+    local missing = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    missing:SetJustifyH("LEFT")
+    missing:SetWordWrap(false)
+    missing:SetText("That channel is not open in this area.")
+    F.SetFontSize(missing, 16)
+    missing:SetTextColor(1, 0.45, 0.32)
+    missing:Hide()
+    panel.missing = missing
+
+    local repeatCheck
+    local made, check = pcall(CreateFrame, "CheckButton", nil, panel, "UICheckButtonTemplate")
+    if made and check then
+        repeatCheck = check
+        if check.Text then
+            check.Text:SetText("")
+            check.Text:Hide()
+        end
+        check:SetScript("OnClick", function(self)
+            if db then
+                db.timerRepeat = not not self:GetChecked()
+            end
+            F.TimerRefreshStatus()
+        end)
+        local repeatLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        repeatLabel:SetText("Repeat")
+        F.SetFontSize(repeatLabel, 18)
+        repeatLabel:SetTextColor(F.ThemeColor("bright"))
+        panel.repeatLabel = repeatLabel
+    else
+        repeatCheck = F.Chip(panel, "Repeat", 80, 12, 22)
+        repeatCheck:SetScript("OnClick", function(self)
+            if db then
+                db.timerRepeat = not db.timerRepeat
+            end
+            self.nfLabel:SetText(db and db.timerRepeat and "Repeats" or "Repeat")
+            F.TimerRefreshStatus()
+        end)
+    end
+    panel.repeatCheck = repeatCheck
+
+    local startBtn = F.Chip(panel, "Start", 140, 18, 36)
+    startBtn:SetScript("OnClick", function()
+        F.TimerStart()
+    end)
+    panel.startBtn = startBtn
+    local stopBtn = F.Chip(panel, "Stop", 140, 18, 36)
+    stopBtn:SetScript("OnClick", function()
+        F.TimerStop()
+    end)
+    panel.stopBtn = stopBtn
+
+    local status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    status:SetJustifyH("LEFT")
+    status:SetWordWrap(false)
+    status:SetText("Not running")
+    F.SetFontSize(status, 18)
+    status:SetTextColor(F.ThemeColor("bright"))
+    panel.status = status
+
+    panel:SetScript("OnHide", function(self)
+        if self.message and self.message.ClearFocus then
+            self.message:ClearFocus()
+        end
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    F.TimerLayoutPanel()
+    panel:Hide()
 end
 
 function F.CreateNav()
@@ -5738,6 +8338,35 @@ function F.CreateNav()
     settingsBtn:HookScript("OnLeave", GameTooltip_Hide)
     nav.settingsBtn = settingsBtn
 
+    local timerBtn = F.Chip(nav, "Timer", 80, 12, 28)
+    timerBtn:SetPoint("LEFT", nav, "LEFT", 8, 0)
+    if timerBtn.SetClipsChildren then
+        timerBtn:SetClipsChildren(true)
+    end
+    timerBtn.nfLabel:SetWidth(72)
+    timerBtn.nfLabel:SetWordWrap(false)
+    timerBtn.nfLabel:SetJustifyH("CENTER")
+    timerBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    timerBtn:SetScript("OnClick", function(_, button)
+        if button == "RightButton" then
+            if (db and db.timerEnd) or F.timerRinging then
+                F.TimerStop()
+                return
+            end
+        end
+        F.ToggleTimer()
+    end)
+    timerBtn:HookScript("OnEnter", function(self)
+        self.nfTimerHot = true
+        F.TimerShowTip(self)
+    end)
+    timerBtn:HookScript("OnLeave", function(self)
+        self.nfTimerHot = false
+        GameTooltip:Hide()
+        F.TimerPaintButton()
+    end)
+    nav.timerBtn = timerBtn
+
     local clearBtn = F.Chip(nav, "Clear", 64, 14, 28)
     clearBtn:SetPoint("RIGHT", settingsBtn, "LEFT", -6, 0)
     clearBtn:SetScript("OnClick", function()
@@ -5760,7 +8389,7 @@ function F.CreateNav()
             ToggleWorldMap()
         end
         UpdateWorldClick()
-        F.Say("Right-click the world map to drop a pin. Ctrl-click works too.")
+        F.Say("Right-click the world map to drop a pin. " .. F.WorldPinKey() .. "-click works too.")
         F.UpdateNav()
     end)
 
@@ -5823,6 +8452,9 @@ function F.CreateNav()
     pinMark = CreateFrame("Frame", "NavigateForeverPin", map)
     pinMark:SetSize(14, 14)
     pinMark:EnableMouse(false)
+    if pinMark.SetIgnoreParentAlpha then
+        pinMark:SetIgnoreParentAlpha(true)
+    end
     pinMark:SetFrameLevel((map:GetFrameLevel() or 0) + 20)
     local markRing = pinMark:CreateTexture(nil, "OVERLAY")
     markRing:SetColorTexture(F.BorderColor())
@@ -6280,6 +8912,9 @@ end
 
 function F.ResetSettings()
     F.GatherUnmute()
+    if F.BobberClear then
+        F.BobberClear()
+    end
     local hintShown = db.hintShown
     for key, value in pairs(DEFAULTS) do
         db[key] = value
@@ -6314,6 +8949,17 @@ function F.ResetSettings()
         F.gather.remember = nil
     end
     F.SyncOptions()
+    db.timerEnd = nil
+    F.timerRinging = false
+    if F.timerPrompt then
+        F.timerPrompt:Hide()
+    end
+    if F.TimerPaintButton then
+        F.TimerPaintButton()
+    end
+    if F.timerPanel then
+        F.timerPanel:Hide()
+    end
     F.Say("Settings reset.")
 end
 
@@ -6856,8 +9502,8 @@ function F.CreateOptionsPage()
 end
 
 function F.OptionsTab(label, tip, x, id)
-    local button = F.Chip(panel, label, 106, 16)
-    button:SetSize(106, 26)
+    local button = F.Chip(panel, label, 84, 15)
+    button:SetSize(84, 26)
     button:SetPoint("TOPLEFT", x, -76)
     button.nfPage = id
     button:SetScript("OnClick", function()
@@ -7358,6 +10004,116 @@ function F.BuildMessagesPage(page)
     return page
 end
 
+local SUGGEST_URL = "https://www.curseforge.com/wow/addons/navigate-forever/comments"
+
+function F.BuildSuggestPage(page)
+    F.SectionLabel(page, "Suggestions", -8)
+
+    local function note(text, y)
+        local line = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        line:SetPoint("TOPLEFT", 18, y)
+        line:SetPoint("TOPRIGHT", -18, y)
+        line:SetJustifyH("LEFT")
+        line:SetText(text)
+        F.SetFontSize(line, 14)
+        return line
+    end
+
+    note("Have an idea, or found something broken? Leave a comment on Navigate Forever's CurseForge page. Every comment gets read.", -32)
+    note("The game can't open web pages, so copy this link and paste it into your browser.", -78)
+
+    local link = CreateFrame("EditBox", nil, page)
+    link:SetPoint("TOPLEFT", 18, -118)
+    link:SetPoint("TOPRIGHT", -112, -118)
+    link:SetHeight(28)
+    link:SetAutoFocus(false)
+    link:SetFont("Fonts\\FRIZQT__.TTF", 12, "")
+    link:SetJustifyH("LEFT")
+    link:SetTextInsets(8, 8, 0, 0)
+    F.PaintPanel(link, 1)
+    link:SetTextColor(F.ThemeColor("bright"))
+    link:SetText(SUGGEST_URL)
+    link:SetCursorPosition(0)
+    -- Read-only: any typing snaps back to the link.
+    link:SetScript("OnTextChanged", function(self, user)
+        if user and self:GetText() ~= SUGGEST_URL then
+            self:SetText(SUGGEST_URL)
+            self:HighlightText()
+        end
+    end)
+    link:SetScript("OnEditFocusGained", function(self)
+        self:HighlightText()
+    end)
+    link:SetScript("OnMouseUp", function(self)
+        self:SetFocus()
+        self:HighlightText()
+    end)
+    link:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+    end)
+    link:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+    end)
+
+    local copy = F.Chip(page, "Copy link", 84, 14)
+    copy:SetPoint("LEFT", link, "RIGHT", 10, 0)
+    copy:SetScript("OnClick", function()
+        link:SetFocus()
+        link:HighlightText()
+        F.Say("The link is selected. Press Ctrl+C to copy it.")
+    end)
+
+    F.SectionLabel(page, "Write it here first", -162)
+    note("Your note is saved until you clear it. Click Select all, press Ctrl+C, then paste it into the comment.", -186)
+
+    local draft = CreateFrame("EditBox", nil, page)
+    draft:SetPoint("TOPLEFT", 18, -228)
+    draft:SetPoint("TOPRIGHT", -18, -228)
+    draft:SetHeight(84)
+    draft:SetMultiLine(true)
+    draft:SetAutoFocus(false)
+    draft:SetFont("Fonts\\FRIZQT__.TTF", 13, "")
+    draft:SetJustifyH("LEFT")
+    draft:SetTextInsets(8, 8, 8, 8)
+    draft:SetMaxLetters(600)
+    F.PaintPanel(draft, 1)
+    draft:SetTextColor(F.ThemeColor("bright"))
+    draft:SetScript("OnShow", function(self)
+        self:SetText(db and db.suggestDraft or "")
+    end)
+    draft:SetScript("OnTextChanged", function(self, user)
+        if user and db then
+            db.suggestDraft = self:GetText() or ""
+        end
+    end)
+    draft:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+    end)
+    draft:SetScript("OnMouseUp", function(self)
+        self:SetFocus()
+    end)
+
+    local selectAll = F.Chip(page, "Select all", 84, 14)
+    selectAll:SetPoint("TOPLEFT", draft, "BOTTOMLEFT", 0, -8)
+    selectAll:SetScript("OnClick", function()
+        draft:SetFocus()
+        draft:HighlightText()
+        F.Say("Your note is selected. Press Ctrl+C to copy it.")
+    end)
+
+    local clear = F.Chip(page, "Clear", 84, 14)
+    clear:SetPoint("LEFT", selectAll, "RIGHT", 8, 0)
+    clear:SetScript("OnClick", function()
+        draft:SetText("")
+        draft:ClearFocus()
+        if db then
+            db.suggestDraft = ""
+        end
+    end)
+
+    return page
+end
+
 function F.BuildMorePage(page)
     F.SectionLabel(page, "Colors", -8)
     F.CreateThemePicker(page, -30)
@@ -7483,11 +10239,13 @@ function F.CreateOptions()
         rings = F.BuildRingsPage(F.CreateOptionsPage()),
         messages = F.BuildMessagesPage(F.CreateOptionsPage()),
         more = F.BuildMorePage(F.CreateOptionsPage()),
+        suggest = F.BuildSuggestPage(F.CreateOptionsPage()),
     }
-    F.OptionsTab("Map", "Size, opacity, lock, the direction arrow, the quest diamond, and quest marks.", 16, "map")
-    F.OptionsTab("Rings", "The circles around you, and how far out they sit.", 130, "rings")
-    F.OptionsTab("Messages", "Chat notes for pins, areas, rares, campfires, and quest items.", 244, "messages")
-    F.OptionsTab("More", "Theme, colors, the death marker, and gathering.", 358, "more")
+    F.OptionsTab("Map", "Size, opacity, lock, the direction arrow, the quest diamond, quest marks, and your bobber.", 16, "map")
+    F.OptionsTab("Rings", "The circles around you, and how far out they sit.", 107, "rings")
+    F.OptionsTab("Messages", "Chat notes for pins, areas, rares, campfires, and quest items. An item tooltip can name the quest it is for, or the cooking recipe that uses it.", 198, "messages")
+    F.OptionsTab("More", "Theme, colors, the death marker, and gathering.", 289, "more")
+    F.OptionsTab("Suggest", "Share an idea or report a problem on Navigate Forever's CurseForge page.", 380, "suggest")
     F.ShowOptionsPage("map")
 
     local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -7495,7 +10253,11 @@ function F.CreateOptions()
     hint:SetPoint("BOTTOMRIGHT", -20, 46)
     hint:SetJustifyH("CENTER")
     hint:SetTextColor(0.75, 0.75, 0.75)
-    hint:SetText("Ctrl-click the world map to drop a pin. Hold Right Alt and drag to move the minimap.")
+    local function hintText()
+        hint:SetText(F.WorldPinKey() .. "-click the world map to drop a pin. Hold Right Alt and drag to move the minimap.")
+    end
+    hintText()
+    panel:HookScript("OnShow", hintText)
     F.SetFontSize(hint, 15)
 
     local reset = F.Chip(panel, "Reset", 88, 16)
@@ -8366,8 +11128,26 @@ function F.SlashCommand(message)
         F.Say("Size set to " .. Round(db.scale * 100) .. "%.")
     elseif command == "joke" then
         F.TellJoke()
+    elseif command == "timer" or command == "alarm" then
+        F.TimerCommand(rest)
     elseif command == "buttons" then
         F.DumpButtons()
+    elseif command == "hud" then
+        if F.ToggleHUD then
+            F.ToggleHUD()
+        end
+    elseif command == "trail" then
+        if F.TrailCommand then
+            F.TrailCommand(rest)
+        end
+    elseif command == "boats" or command == "boat" or command == "zeppelins" then
+        if F.BoatReport then
+            F.BoatReport(rest)
+        end
+    elseif command == "nodes" then
+        if F.NodesReport then
+            F.NodesReport(rest)
+        end
     elseif command == "gather" then
         local mode = string.lower(rest or "")
         local seconds = tonumber(mode)
@@ -8388,7 +11168,7 @@ function F.SlashCommand(message)
             F.Say("Usage: /nf gather, /nf gather on, /nf gather off, or /nf gather 4.")
         end
     else
-        F.Say("Commands: /nf opens options. Also /nf lock, /nf unlock, /nf reset, /nf clear, /nf death, /nf gather, /nf joke, /nf pin bank, /nf go bank, /nf find goldshire, /nf mail, /nf inn, /nf repair, /nf vendor, /nf flight, /nf alpha 80, /nf size 150.")
+        F.Say("Commands: /nf opens options. Also /nf lock, /nf unlock, /nf reset, /nf clear, /nf death, /nf gather, /nf joke, /nf timer, /nf timer 5, /nf pin bank, /nf go bank, /nf find goldshire, /nf mail, /nf inn, /nf repair, /nf vendor, /nf flight, /nf alpha 80, /nf size 150.")
     end
 end
 
@@ -8448,7 +11228,7 @@ function F.Greet()
     F.Say("loaded. " .. quip)
     if db.hintShown ~= 8 then
         db.hintShown = 8
-        F.Say("Ctrl-click the world map to drop a pin. Hold Right Alt and drag to move the minimap.")
+        F.Say(F.WorldPinKey() .. "-click the world map to drop a pin. Hold Right Alt and drag to move the minimap.")
     end
 end
 
@@ -10683,7 +13463,17 @@ F.WatchArrowEvent("UPDATE_MOUSEOVER_UNIT")
 F.WatchArrowEvent("VIGNETTES_UPDATED")
 F.WatchArrowEvent("VIGNETTE_MINIMAP_UPDATED")
 F.WatchArrowEvent("PLAYER_REGEN_ENABLED")
+F.WatchArrowEvent("TAXIMAP_OPENED")
 events:SetScript("OnEvent", function(_, event, arg1)
+    if event == "TAXIMAP_OPENED" then
+        pcall(F.CacheTaxiMap)
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function()
+                pcall(F.CacheTaxiMap)
+            end)
+        end
+        return
+    end
     if event == "PLAYER_REGEN_ENABLED" then
         if F.worldPinDirty and F.RefreshWorldPin then
             F.RefreshWorldPin()
